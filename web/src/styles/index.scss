@@ -1,0 +1,241 @@
+/* ===================================================================
+ * 全局样式与设计规范变量
+ * 依据：界面设计文档 8.0/8.1 —— 商务简洁浅色企业风
+ *  品牌点缀色 #344d13（小面积强调）；底色 #f5f7fa；卡片 #ffffff；
+ *  中性主操作色 #4a5c7a；卡片圆角 6px；卡片间隙 12px
+ * =================================================================== */
+
+:root {
+  /* 设计规范变量 */
+  --crm-primary: #344d13;
+  --crm-primary-hover: #2a3e0f;
+  --crm-neutral: #4a5c7a;
+  --crm-bg: #f5f7fa;
+  --crm-card: #ffffff;
+  --crm-radius: 6px;
+  --crm-gap: 12px;
+  --crm-text: #303133;
+  --crm-text-regular: #606266;
+  --crm-text-secondary: #909399;
+  --crm-border: #e4e7ed;
+  --crm-sidebar-width: 220px;
+  --crm-header-height: 56px;
+
+  /* 预警三色 */
+  --crm-alert-1: #e6a23c;
+  --crm-alert-2: #f56c6c;
+  --crm-alert-3: #c45656;
+
+  /* Element Plus 主题变量映射（按 #344d13 同比例生成浅色调） */
+  --el-color-primary: #344d13;
+  --el-color-primary-dark-2: #2a3e0f;
+  --el-color-primary-light-3: #71825a;
+  --el-color-primary-light-5: #9aa689;
+  --el-color-primary-light-7: #c2cab8;
+  --el-color-primary-light-8: #d6dbd0;
+  --el-color-primary-light-9: #ebede7;
+  --el-border-radius-base: 6px;
+  --el-font-size-base: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--crm-bg);
+  color: var(--crm-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--crm-primary);
+  text-decoration: none;
+}
+
+/* ---------------- 通用页面骨架 ---------------- */
+.page {
+  padding: 12px;
+}
+
+.page-card {
+  background: var(--crm-card);
+  border-radius: var(--crm-radius);
+  padding: 12px;
+  margin-bottom: var(--crm-gap);
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: var(--crm-gap);
+}
+
+.page-head__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--crm-text);
+  margin: 0;
+}
+
+.page-head__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: 11px;
+  font-size: 12px;
+  color: var(--crm-primary);
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+}
+
+/* 筛选区 */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--crm-gap);
+}
+
+.filter-bar__spacer {
+  flex: 1;
+}
+
+/* 卡片分区 */
+.section-card {
+  background: var(--crm-card);
+  border-radius: var(--crm-radius);
+  border: 1px solid var(--crm-border);
+  padding: 12px;
+  margin-bottom: var(--crm-gap);
+}
+
+.section-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  padding-left: 8px;
+  border-left: 3px solid var(--crm-primary);
+  line-height: 1.2;
+}
+
+/* 详情页三段式：右侧信息栏 280px */
+.detail-layout {
+  display: flex;
+  gap: var(--crm-gap);
+  align-items: flex-start;
+}
+
+.detail-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-aside {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+  .detail-aside {
+    display: none;
+  }
+}
+
+/* 数值右对齐千分位 */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-muted {
+  color: var(--crm-text-secondary);
+}
+
+.mt-12 {
+  margin-top: 12px;
+}
+
+.mb-12 {
+  margin-bottom: 12px;
+}
+
+/* 时间轴 */
+.timeline-item__title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.timeline-item__meta {
+  color: var(--crm-text-secondary);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* 阶段进度条 */
+.stage-flow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.stage-flow__node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 14px;
+  background: #f0f2f5;
+  color: var(--crm-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.stage-flow__node--done {
+  background: var(--el-color-primary-light-9);
+  color: var(--crm-primary);
+}
+
+.stage-flow__node--current {
+  background: var(--crm-primary);
+  color: #fff;
+}
+
+.stage-flow__arrow {
+  color: var(--crm-text-secondary);
+}
+
+/* 空状态 */
+.empty-tip {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--crm-text-secondary);
+}

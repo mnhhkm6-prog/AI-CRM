@@ -1,0 +1,29 @@
+# 统一换行符：默认按文本处理并强制 LF，避免 Windows / macOS 互相污染
+* text=auto eol=lf
+
+# Windows 专用脚本保留 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件：禁止 git 做文本处理 / 换行转换
+*.db binary
+*.db-wal binary
+*.db-shm binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# 让 git diff / git log 能识别压缩后的前端产物为生成文件
+dist/** linguist-generated=true
+package-lock.json linguist-generated=true

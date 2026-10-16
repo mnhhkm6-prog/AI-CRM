@@ -1,0 +1,14 @@
+node_modules/
+
+# data/crm.db 需要提交（开发数据集，便于换机直接开工）
+# 仅忽略运行时临时文件与自动备份
+data/*.db-wal
+data/*.db-shm
+data/backups/
+
+# 附件目录需要提交（web 端上传的合同、方案、报价附件）
+# 若体积过大可改为忽略，并在 README 说明
+uploads/.DS_Store
+
+*.log
+.env

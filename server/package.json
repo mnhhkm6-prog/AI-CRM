@@ -1,0 +1,26 @@
+{
+  "name": "ai-crm-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "自研 CRM 后端服务（Node.js + Express + SQLite）",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:init": "node src/db/init.js",
+    "db:reset": "node src/db/init.js --force",
+    "db:snapshot": "node scripts/db-snapshot.cjs",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.1",
+    "cors": "^2.8.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
