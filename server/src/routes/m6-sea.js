@@ -64,6 +64,12 @@ router.get('/sea-pool/:type/:id', requirePermission('sea:view'), (req, res) => {
   const claimedByName = record.claimed_by
     ? (db.prepare('SELECT name FROM users WHERE id = ?').get(record.claimed_by) || {}).name
     : null;
+  const previousOwnerName = record.previous_owner
+    ? (db.prepare('SELECT name FROM users WHERE id = ?').get(record.previous_owner) || {}).name
+    : null;
+  const customerName = entity.customer_id
+    ? (db.prepare('SELECT name FROM customers WHERE id = ?').get(entity.customer_id) || {}).name
+    : null;
 
   ok(res, {
     record,
@@ -73,6 +79,13 @@ router.get('/sea-pool/:type/:id', requirePermission('sea:view'), (req, res) => {
       owner_id: entity[meta.ownerCol],
       status: entity.status,
       is_in_sea: entity.is_in_sea,
+      contact_name: entity.contact_name || null,
+      contact_phone: entity.contact_phone || null,
+      wechat: entity.wechat || null,
+      source_channel: entity.source_channel || null,
+      customer_id: entity.customer_id || null,
+      customer_name: customerName,
+      created_at: entity.created_at || null,
     },
     owner_history: history.map((h) => ({
       id: h.id,
@@ -87,6 +100,7 @@ router.get('/sea-pool/:type/:id', requirePermission('sea:view'), (req, res) => {
     entered_at: record.entered_at,
     protect_until: record.protect_until,
     claimed_by_name: claimedByName,
+    previous_owner_name: previousOwnerName,
   });
 });
 

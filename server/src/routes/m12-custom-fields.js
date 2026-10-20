@@ -42,8 +42,23 @@ function defOr404(id) {
 }
 
 // ---------------------------------------------------------------- 字段值（⚠️ 静态子路径写在参数化路径之前）
-router.get('/custom-fields/values/:entity_type/:entity_id', requirePermission('custom_field:view'), (req, res) => {
+// 读字段值：任何登录用户可读（业务详情页/编辑页渲染需要）
+router.get('/custom-fields/values/:entity_type/:entity_id', (req, res, next) => {
+  if (!req.user) return next(forbidden('未识别身份'));
   ok(res, customField.readValues(req.params.entity_type, req.params.entity_id));
+});
+
+// ---------------------------------------------------------------- 字段定义
+// 读字定义：任何登录用户可读（业务编辑页渲染需要）；只有管理（新增/修改/禁用）才需要 custom_field:manage
+router.get('/custom-fields', (req, res, next) => {
+  if (!req.user) return next(forbidden('未识别身份'));
+  const entityType = req.query.entity_type;
+  if (!entityType) throw badRequest('entity_type 为必填项');
+  // include_disabled 只对管理员/有 custom_field:manage 权限者生效（普通用户只看启用中的字段）
+  const includeDisabled =
+    (req.user.isAdmin || req.user.permissions.has('custom_field:manage')) &&
+    (req.query.include_disabled === 'true' || req.query.include_disabled === '1');
+  ok(res, customField.listDefs(entityType, { includeDisabled }).map(decorate));
 });
 
 router.put('/custom-fields/values/:entity_type/:entity_id', requirePermission('custom_field:manage'), (req, res) => {
@@ -60,14 +75,6 @@ router.put('/custom-fields/values/:entity_type/:entity_id', requirePermission('c
     logType: 'config',
   });
   ok(res, customField.readValues(entityType, entityId));
-});
-
-// ---------------------------------------------------------------- 字段定义
-router.get('/custom-fields', requirePermission('custom_field:view'), (req, res) => {
-  const entityType = req.query.entity_type;
-  if (!entityType) throw badRequest('entity_type 为必填项');
-  const includeDisabled = req.query.include_disabled === 'true' || req.query.include_disabled === '1';
-  ok(res, customField.listDefs(entityType, { includeDisabled }).map(decorate));
 });
 
 router.post('/custom-fields', requirePermission('custom_field:manage'), (req, res) => {

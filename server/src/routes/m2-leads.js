@@ -19,7 +19,7 @@ const seaService = require('../services/seaService');
 const stageEngine = require('../services/stageEngine');
 
 const SORTABLE = ['created_at', 'updated_at', 'name'];
-const EDITABLE = ['name', 'customer_id', 'contact_name', 'contact_phone', 'source_channel', 'owner_id', 'remark', 'status'];
+const EDITABLE = ['name', 'customer_id', 'contact_name', 'contact_phone', 'wechat', 'source_channel', 'owner_id', 'remark', 'status'];
 
 /** 线索列表（M2-R2：数据权限 + 关键字 + 自定义字段筛选） */
 router.get('/leads', requirePermission('lead:view'), (req, res) => {
@@ -33,9 +33,9 @@ router.get('/leads', requirePermission('lead:view'), (req, res) => {
     params.push(...scope.params);
   }
   if (req.query.keyword) {
-    conditions.push('(t.name LIKE ? OR t.contact_name LIKE ? OR t.contact_phone LIKE ?)');
+    conditions.push('(t.name LIKE ? OR t.contact_name LIKE ? OR t.contact_phone LIKE ? OR t.wechat LIKE ?)');
     const kw = `%${req.query.keyword}%`;
-    params.push(kw, kw, kw);
+    params.push(kw, kw, kw, kw);
   }
   ['status', 'source_channel', 'owner_id'].forEach((f) => {
     if (req.query[f]) {
@@ -73,7 +73,13 @@ router.post('/leads', requirePermission('lead:create'), (req, res) => {
   const body = bodyOf(req);
   const name = requireString(body, 'name', '线索名称');
   const sourceChannel = requireString(body, 'source_channel', '来源渠道');
+  // 线索必须可触达：联系人必填，联系电话与微信号至少一项
+  const contactName = requireString(body, 'contact_name', '联系人');
   const contactPhone = optional(body, 'contact_phone');
+  const wechat = optional(body, 'wechat');
+  if (!String(contactPhone || '').trim() && !String(wechat || '').trim()) {
+    throw badRequest('联系电话与微信号至少填写一项');
+  }
 
   let customerId = null;
   if (body.customer_id !== undefined && body.customer_id !== null && body.customer_id !== '') {
@@ -92,16 +98,17 @@ router.post('/leads', requirePermission('lead:create'), (req, res) => {
   const id = newId();
   const t = now();
   db.prepare(
-    `INSERT INTO leads (id, name, customer_id, contact_name, contact_phone, source_channel, status, owner_id,
+    `INSERT INTO leads (id, name, customer_id, contact_name, contact_phone, wechat, source_channel, status, owner_id,
       is_in_sea, remark, created_by, is_deleted, created_at, updated_at)
-     VALUES (@id, @name, @customer_id, @contact_name, @contact_phone, @source_channel, 'new', @owner_id,
+     VALUES (@id, @name, @customer_id, @contact_name, @contact_phone, @wechat, @source_channel, 'new', @owner_id,
       0, @remark, @created_by, 0, @t, @t)`
   ).run({
     id,
     name,
     customer_id: customerId,
-    contact_name: optional(body, 'contact_name'),
+    contact_name: contactName,
     contact_phone: contactPhone,
+    wechat,
     source_channel: sourceChannel,
     owner_id: optional(body, 'owner_id', req.user.id),
     remark: optional(body, 'remark'),
@@ -136,6 +143,20 @@ router.put('/leads/:id', requirePermission('lead:update'), (req, res) => {
     if (body[f] !== undefined) after[f] = body[f];
   });
   if (!Object.keys(after).length && !body.custom_fields) throw badRequest('没有可更新的字段');
+
+  // 触及联系信息时，保证线索仍然可触达（联系人必填，电话/微信至少一项）
+  const touchesContact = ['contact_name', 'contact_phone', 'wechat'].some((f) => body[f] !== undefined);
+  if (touchesContact) {
+    const next = {
+      contact_name: after.contact_name !== undefined ? after.contact_name : before.contact_name,
+      contact_phone: after.contact_phone !== undefined ? after.contact_phone : before.contact_phone,
+      wechat: after.wechat !== undefined ? after.wechat : before.wechat,
+    };
+    if (!String(next.contact_name || '').trim()) throw badRequest('联系人为必填项');
+    if (!String(next.contact_phone || '').trim() && !String(next.wechat || '').trim()) {
+      throw badRequest('联系电话与微信号至少填写一项');
+    }
+  }
 
   if (Object.keys(after).length) {
     const sets = Object.keys(after).map((f) => `${f} = @${f}`).join(', ');

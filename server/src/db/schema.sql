@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS leads (
   customer_id TEXT,
   contact_name TEXT,
   contact_phone TEXT,
+  wechat TEXT,
   source_channel TEXT,
   status TEXT DEFAULT 'new',              -- new / following / converted / recycled
   owner_id TEXT,
@@ -459,6 +460,7 @@ CREATE TABLE IF NOT EXISTS sea_pool_records (
   customer_id TEXT,
   reason TEXT,
   source TEXT DEFAULT 'manual',           -- manual / auto_stale / auto_recycle
+  previous_owner TEXT,                    -- 入公海前的负责人
   entered_at TEXT,
   claimed_by TEXT,
   claimed_at TEXT,

@@ -384,7 +384,11 @@ router.get('/competitors', requirePermission('competitor:view'), (req, res) => {
 router.get('/opportunities/:id/competitors', requirePermission('competitor:view'), (req, res) => {
   const opp = requireOpportunity(req, req.params.id);
   const list = db
-    .prepare('SELECT * FROM competitors WHERE opportunity_id = ? AND is_deleted = 0 ORDER BY created_at DESC')
+    .prepare(
+      `SELECT c.*, u.name AS created_by_name FROM competitors c
+       LEFT JOIN users u ON u.id = c.created_by
+       WHERE c.opportunity_id = ? AND c.is_deleted = 0 ORDER BY c.created_at DESC`
+    )
     .all(opp.id);
   ok(res, list);
 });

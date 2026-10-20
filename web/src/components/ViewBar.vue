@@ -260,6 +260,14 @@ function applyView(view: any | null) {
   })
 }
 
+/** 记住当前用户在每个实体上最近选择的视图（刷新/跳转后保持） */
+const storageKey = computed(() => `crm_view_${props.entityType}_${userStore.profile?.id || 'anon'}`)
+
+function remember(id: string) {
+  if (id) localStorage.setItem(storageKey.value, id)
+  else localStorage.removeItem(storageKey.value)
+}
+
 async function loadViews() {
   views.value = (await api.listViews({ entity_type: props.entityType })) || []
   if (!views.value.length) {
@@ -267,13 +275,29 @@ async function loadViews() {
     applyView(null)
     return
   }
-  const preferred = views.value.find((v) => v.is_default === 1) || views.value[0]
+  const remembered = localStorage.getItem(storageKey.value)
+  const preferred =
+    (remembered && views.value.find((v) => v.id === remembered)) ||
+    views.value.find((v) => v.is_default === 1) ||
+    views.value[0]
   activeId.value = preferred.id
   applyView(preferred)
 }
 
 function onSelectView(id: string) {
+  remember(id)
   applyView(views.value.find((v) => v.id === id) || null)
+}
+
+/** 保存后把该视图设为本人默认（后端按 owner_id 清理，不影响他人） */
+async function markDefault(viewId: string, view: any) {
+  if (!view || view.is_system === 1) return
+  if (!userStore.isAdmin && view.owner_id !== userStore.profile?.id) return
+  try {
+    await api.setDefaultView(viewId)
+  } catch (e) {
+    /* 设为默认失败不影响保存结果 */
+  }
 }
 
 function openDrawer() {
@@ -330,22 +354,21 @@ async function save(asNew: boolean) {
   const body = buildBody()
   saving.value = true
   try {
+    let saved: any = null
     if (!asNew && draft.id) {
-      await api.updateView(draft.id, body)
+      saved = await api.updateView(draft.id, body)
       ElMessage.success('视图已更新')
     } else {
-      const res = await api.createView(body)
+      saved = await api.createView(body)
       ElMessage.success('视图已保存')
-      await loadViews()
-      activeId.value = res.id
-      applyView(views.value.find((v) => v.id === res.id) || null)
-      drawer.value = false
-      return
     }
+    const savedId = saved?.id || draft.id
+    remember(savedId)
+    await markDefault(savedId, saved)
     drawer.value = false
     await loadViews()
-    activeId.value = draft.id
-    applyView(views.value.find((v) => v.id === draft.id) || null)
+    activeId.value = savedId
+    applyView(views.value.find((v) => v.id === savedId) || null)
   } catch (e: any) {
     ElMessage.error(e?.bizMessage || e?.message || '保存失败')
   } finally {

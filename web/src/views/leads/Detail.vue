@@ -25,6 +25,7 @@
               <el-descriptions-item label="负责人">{{ lead?.owner_name || '—' }}</el-descriptions-item>
               <el-descriptions-item label="联系人">{{ lead?.contact_name || '—' }}</el-descriptions-item>
               <el-descriptions-item label="联系电话">{{ lead?.contact_phone || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="微信号">{{ lead?.wechat || '—' }}</el-descriptions-item>
               <el-descriptions-item label="关联客户">
                 <el-link v-if="lead?.customer_id" type="primary" underline="never" @click="goCustomer">
                   {{ customerName || '查看客户' }}

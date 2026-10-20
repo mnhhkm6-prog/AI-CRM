@@ -22,7 +22,7 @@
       <div class="filter-bar">
         <el-input
           v-model="query.keyword"
-          placeholder="线索名称 / 联系人 / 电话"
+          placeholder="线索名称 / 联系人 / 电话 / 微信"
           clearable
           style="width: 220px"
           @keyup.enter="reload"
@@ -197,6 +197,7 @@ const COLUMN_DEFS: ListColumnDef[] = [
   { key: 'name', label: '线索名称', minWidth: 180, tooltip: true },
   { key: 'contact_name', label: '联系人', width: 100 },
   { key: 'contact_phone', label: '联系电话', width: 130 },
+  { key: 'wechat', label: '微信号', width: 130 },
   { key: 'source_channel', label: '来源渠道', width: 110 },
   { key: 'status', label: '状态', width: 100, align: 'center' },
   { key: 'owner_name', label: '负责人', width: 100 },

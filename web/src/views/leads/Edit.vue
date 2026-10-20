@@ -24,13 +24,18 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="联系人">
-              <el-input v-model="form.contact_name" maxlength="40" placeholder="选填" />
+            <el-form-item label="联系人" prop="contact_name">
+              <el-input v-model="form.contact_name" maxlength="40" placeholder="请输入联系人" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="联系电话">
-              <el-input v-model="form.contact_phone" maxlength="30" placeholder="选填" />
+              <el-input v-model="form.contact_phone" maxlength="30" placeholder="联系电话与微信号至少填一项" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="微信号">
+              <el-input v-model="form.wechat" maxlength="40" placeholder="联系电话与微信号至少填一项" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -106,13 +111,14 @@ const id = computed(() => (route.params.id as string) || '')
 const isEdit = computed(() => !!id.value)
 
 const form = reactive({
-  name: '', source_channel: '', contact_name: '', contact_phone: '',
+  name: '', source_channel: '', contact_name: '', contact_phone: '', wechat: '',
   customer_id: '', owner_id: '', status: 'new', remark: '',
 })
 
 const rules: FormRules = {
   name: [{ required: true, message: '请输入线索名称', trigger: 'blur' }],
   source_channel: [{ required: true, message: '请选择来源渠道', trigger: 'change' }],
+  contact_name: [{ required: true, message: '请输入联系人', trigger: 'blur' }],
 }
 
 function back() {
@@ -133,13 +139,18 @@ async function searchCustomers(keyword: string) {
 async function save() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
+  if (!form.contact_phone.trim() && !form.wechat.trim()) {
+    ElMessage.warning('联系电话与微信号至少填写一项')
+    return
+  }
   submitting.value = true
   try {
     const payload: Record<string, any> = {
       name: form.name.trim(),
       source_channel: form.source_channel,
-      contact_name: form.contact_name || undefined,
+      contact_name: form.contact_name.trim(),
       contact_phone: form.contact_phone || undefined,
+      wechat: form.wechat || undefined,
       customer_id: form.customer_id || undefined,
       owner_id: form.owner_id || undefined,
       remark: form.remark || undefined,

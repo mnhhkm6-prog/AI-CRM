@@ -39,6 +39,26 @@
             <el-link type="primary" underline="never" @click="goEntity(row)">{{ row.entity_name || '—' }}</el-link>
           </template>
         </el-table-column>
+        <template v-if="tab === 'lead'">
+          <el-table-column label="联系人" width="100">
+            <template #default="{ row }">{{ row.contact_name || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="联系电话" width="130">
+            <template #default="{ row }">{{ row.contact_phone || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="微信号" width="130">
+            <template #default="{ row }">{{ row.wechat || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="来源渠道" width="110">
+            <template #default="{ row }">{{ row.source_channel || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="关联客户" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.customer_name || '—' }}</template>
+          </el-table-column>
+        </template>
+        <el-table-column label="原负责人" width="100">
+          <template #default="{ row }">{{ row.previous_owner_name || '—' }}</template>
+        </el-table-column>
         <el-table-column label="入公海时间" width="150">
           <template #default="{ row }">{{ fmt(row.entered_at) }}</template>
         </el-table-column>
@@ -97,6 +117,15 @@
             <el-descriptions :column="1" size="small" border>
               <el-descriptions-item label="名称">{{ detail.entity?.name || '—' }}</el-descriptions-item>
               <el-descriptions-item label="公海类型">{{ typeLabel }}</el-descriptions-item>
+              <template v-if="tab === 'lead'">
+                <el-descriptions-item label="联系人">{{ detail.entity?.contact_name || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="联系电话">{{ detail.entity?.contact_phone || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="微信号">{{ detail.entity?.wechat || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="来源渠道">{{ detail.entity?.source_channel || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="关联客户">{{ detail.entity?.customer_name || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="录入时间">{{ fmt(detail.entity?.created_at) }}</el-descriptions-item>
+              </template>
+              <el-descriptions-item label="原负责人">{{ detail.previous_owner_name || '—' }}</el-descriptions-item>
               <el-descriptions-item label="入公海时间">{{ fmt(detail.entered_at) }}</el-descriptions-item>
               <el-descriptions-item label="入公海来源">{{ sourceLabel(detail.record?.source) }}</el-descriptions-item>
               <el-descriptions-item label="入公海原因">{{ detail.record?.reason || '—' }}</el-descriptions-item>

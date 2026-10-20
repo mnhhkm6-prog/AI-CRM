@@ -65,6 +65,15 @@
                   <span class="check-item__icon">{{ item.done ? '✅' : '⬜' }}</span>
                   <span class="check-item__name">{{ item.action_name }}</span>
                   <span class="check-item__tip text-muted">{{ item.tip || '' }}</span>
+                  <el-button
+                    v-if="quickLabel(item)"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="runQuick(item)"
+                  >
+                    {{ quickLabel(item) }}
+                  </el-button>
                   <el-tag size="small" :type="item.done ? 'success' : 'info'" effect="plain">
                     {{ item.done ? '已完成' : '未完成' }}
                   </el-tag>
@@ -91,34 +100,81 @@
               </el-tab-pane>
 
               <el-tab-pane :label="`方案与报价 (${proposals.length + quotations.length})`" name="assets">
-                <h4 class="sub-title">方案</h4>
+                <div class="assets-head">
+                  <h4 class="sub-title">方案</h4>
+                  <el-button v-if="canProposalCreate" type="primary" size="small" @click="openProposal()">上传方案</el-button>
+                </div>
                 <el-table :data="proposals" size="small">
                   <el-table-column prop="file_name" label="文件" min-width="200" show-overflow-tooltip />
-                  <el-table-column label="类型" width="110">
+                  <el-table-column label="类型" width="100">
                     <template #default="{ row }">{{ row.proposal_type === 'formal' ? '正式方案' : '初步方案' }}</template>
                   </el-table-column>
+                  <el-table-column prop="uploaded_by_name" label="上传人" width="100" />
                   <el-table-column label="上传时间" width="150">
                     <template #default="{ row }">{{ fmt(row.created_at) }}</template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="170" align="center">
+                    <template #default="{ row }">
+                      <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
+                      <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
+                      <el-button v-if="canProposalDelete" link type="danger" size="small" @click="removeProposal(row)">删除</el-button>
+                    </template>
                   </el-table-column>
                   <template #empty><div class="empty-tip">暂无方案</div></template>
                 </el-table>
-                <h4 class="sub-title">报价</h4>
+
+                <div class="assets-head mt-12">
+                  <h4 class="sub-title">报价</h4>
+                  <el-button v-if="canQuotationCreate" type="primary" size="small" @click="openQuotation()">上传报价</el-button>
+                </div>
                 <el-table :data="quotations" size="small">
-                  <el-table-column prop="file_name" label="文件" min-width="200" show-overflow-tooltip />
-                  <el-table-column label="类型" width="110">
+                  <el-table-column prop="file_name" label="文件" min-width="180" show-overflow-tooltip>
+                    <template #default="{ row }">{{ row.file_name || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="类型" width="100">
                     <template #default="{ row }">{{ row.quotation_type === 'final' ? '最终报价' : '初步报价' }}</template>
+                  </el-table-column>
+                  <el-table-column prop="product_type" label="产品类型" width="110" />
+                  <el-table-column label="金额" width="120" align="right">
+                    <template #default="{ row }">{{ Number(row.amount || 0).toLocaleString('zh-CN') }}</template>
                   </el-table-column>
                   <el-table-column label="上传时间" width="150">
                     <template #default="{ row }">{{ fmt(row.created_at) }}</template>
                   </el-table-column>
+                  <el-table-column label="操作" width="170" align="center">
+                    <template #default="{ row }">
+                      <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
+                      <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
+                      <el-button v-if="canQuotationDelete" link type="danger" size="small" @click="removeQuotation(row)">删除</el-button>
+                    </template>
+                  </el-table-column>
                   <template #empty><div class="empty-tip">暂无报价</div></template>
                 </el-table>
-                <el-table :data="contracts" size="small" class="mt-12">
-                  <el-table-column prop="contract_no" label="合同编号" width="160" />
-                  <el-table-column label="金额" width="120" align="right">
-                    <template #default="{ row }">{{ Number(row.amount || 0).toLocaleString('zh-CN') }}</template>
+
+              </el-tab-pane>
+
+              <el-tab-pane :label="`竞争对手 (${competitors.length})`" name="competitors">
+                <div class="mb-12">
+                  <el-button v-if="canCompetitorCreate" type="primary" size="small" @click="openCompetitor">
+                    新增竞争对手
+                  </el-button>
+                </div>
+                <el-table :data="competitors" size="small">
+                  <el-table-column prop="name" label="竞品名称" min-width="140" show-overflow-tooltip />
+                  <el-table-column prop="strengths" label="优势" min-width="180" show-overflow-tooltip />
+                  <el-table-column prop="weaknesses" label="劣势" min-width="180" show-overflow-tooltip />
+                  <el-table-column prop="created_by_name" label="记录人" width="100" />
+                  <el-table-column label="记录时间" width="150">
+                    <template #default="{ row }">{{ fmt(row.created_at) }}</template>
                   </el-table-column>
-                  <template #empty><div class="empty-tip">暂无合同</div></template>
+                  <el-table-column label="操作" width="80" align="center">
+                    <template #default="{ row }">
+                      <el-button v-if="canCompetitorDelete" link type="danger" size="small" @click="removeCompetitor(row)">
+                        删除
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                  <template #empty><div class="empty-tip">暂无竞争对手记录</div></template>
                 </el-table>
               </el-tab-pane>
 
@@ -134,6 +190,36 @@
                   <el-table-column prop="content" label="内容" min-width="240" show-overflow-tooltip />
                   <el-table-column prop="creator_name" label="记录人" width="100" />
                   <template #empty><div class="empty-tip">暂无行为记录</div></template>
+                </el-table>
+              </el-tab-pane>
+
+              <el-tab-pane :label="`合同 (${contracts.length})`" name="contracts">
+                <div class="mb-12">
+                  <el-button v-if="canContractCreate" type="primary" size="small" @click="openContract">
+                    新增合同
+                  </el-button>
+                </div>
+                <el-table :data="contracts" size="small">
+                  <el-table-column prop="contract_no" label="合同编号" width="160" />
+                  <el-table-column prop="contract_name" label="合同名称" min-width="180" show-overflow-tooltip />
+                  <el-table-column label="金额" width="130" align="right">
+                    <template #default="{ row }">{{ Number(row.amount || 0).toLocaleString('zh-CN') }}</template>
+                  </el-table-column>
+                  <el-table-column prop="signed_date" label="签订日期" width="120" />
+                  <el-table-column label="状态" width="90" align="center">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.status === 'archived' ? 'info' : 'success'" effect="plain">
+                        {{ row.status === 'archived' ? '已归档' : '生效中' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="120" align="center">
+                    <template #default="{ row }">
+                      <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
+                      <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
+                    </template>
+                  </el-table-column>
+                  <template #empty><div class="empty-tip">暂无合同</div></template>
                 </el-table>
               </el-tab-pane>
 
@@ -327,21 +413,203 @@
         <el-button type="primary" :loading="submitting" @click="confirmShare">确认分享</el-button>
       </template>
     </el-dialog>
+
+    <!-- 上传方案（M5-R1，商机固定） -->
+    <el-dialog v-model="proposalDialog" title="上传方案" width="480px" align-center @closed="resetProposalForm">
+      <el-form label-width="90px">
+        <el-form-item label="关联商机">
+          <el-input :model-value="opp?.name || ''" disabled />
+        </el-form-item>
+        <el-form-item label="方案类型" required>
+          <el-select v-model="proposalForm.proposal_type" placeholder="请选择" style="width: 100%">
+            <el-option v-for="o in PROPOSAL_TYPES" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="方案附件" required>
+          <el-upload
+            ref="proposalUploadRef"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="onProposalFileChange"
+            :on-remove="onProposalFileRemove"
+            :on-exceed="onFileExceed"
+          >
+            <el-button>选择文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">单个文件，大小不超过 50MB</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="proposalDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitProposal">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 上传报价（M5-R2，商机固定） -->
+    <el-dialog v-model="quotationDialog" title="上传报价" width="480px" align-center @closed="resetQuotationForm">
+      <el-form label-width="90px">
+        <el-form-item label="关联商机">
+          <el-input :model-value="opp?.name || ''" disabled />
+        </el-form-item>
+        <el-form-item label="报价类型" required>
+          <el-select v-model="quotationForm.quotation_type" placeholder="请选择" style="width: 100%">
+            <el-option v-for="o in QUOTATION_TYPES" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="产品类型" required>
+          <el-select v-model="quotationForm.product_type" placeholder="请选择" style="width: 100%">
+            <el-option v-for="p in PRODUCT_TYPES" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="报价金额" required>
+          <el-input-number v-model="quotationForm.amount" :min="0" :controls="false" placeholder="请输入金额" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="报价附件">
+          <el-upload
+            ref="quotationUploadRef"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="onQuotationFileChange"
+            :on-remove="onQuotationFileRemove"
+            :on-exceed="onFileExceed"
+          >
+            <el-button>选择文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">可选，单个文件，大小不超过 50MB</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="quotationForm.remark" type="textarea" :rows="2" maxlength="200" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="quotationDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitQuotation">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 新增竞争对手（M5，商机固定） -->
+    <el-dialog v-model="competitorDialog" title="新增竞争对手" width="480px" align-center @closed="resetCompetitorForm">
+      <el-form label-width="100px">
+        <el-form-item label="关联商机">
+          <el-input :model-value="opp?.name || ''" disabled />
+        </el-form-item>
+        <el-form-item label="竞品主数据">
+          <el-select
+            v-model="competitorForm.competitor_master_id"
+            clearable
+            filterable
+            placeholder="可从主数据带出信息"
+            style="width: 100%"
+            @change="onCompetitorMasterPick"
+          >
+            <el-option v-for="m in competitorMasters" :key="m.id" :label="m.name" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="竞品名称" required>
+          <el-input v-model="competitorForm.name" maxlength="60" placeholder="请输入竞品名称" />
+        </el-form-item>
+        <el-form-item label="优势">
+          <el-input v-model="competitorForm.strengths" type="textarea" :rows="3" maxlength="300" show-word-limit />
+        </el-form-item>
+        <el-form-item label="劣势">
+          <el-input v-model="competitorForm.weaknesses" type="textarea" :rows="3" maxlength="300" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="competitorDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitCompetitor">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 新增合同（M5，商机固定） -->
+    <el-dialog v-model="contractDialog" title="新增合同" width="480px" align-center @closed="resetContractForm">
+      <el-form label-width="100px">
+        <el-form-item label="关联商机">
+          <el-input :model-value="opp?.name || ''" disabled />
+        </el-form-item>
+        <el-form-item label="合同编号" required>
+          <el-input v-model="contractForm.contract_no" maxlength="60" placeholder="如 HT-20260101-001" />
+        </el-form-item>
+        <el-form-item label="合同金额" required>
+          <el-input-number
+            v-model="contractForm.amount"
+            :min="0"
+            :controls="false"
+            placeholder="请输入金额"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="签订日期" required>
+          <el-date-picker
+            v-model="contractForm.signed_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="请选择日期"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="签订人" required>
+          <el-select v-model="contractForm.signed_by" filterable placeholder="请选择" style="width: 100%">
+            <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="合同名称">
+          <el-input v-model="contractForm.contract_name" maxlength="120" placeholder="默认同商机名称" />
+        </el-form-item>
+        <el-form-item label="产品类型">
+          <el-select v-model="contractForm.product_type" clearable placeholder="请选择" style="width: 100%">
+            <el-option v-for="p in PRODUCT_TYPES" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="合同附件" required>
+          <el-upload
+            ref="contractUploadRef"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="onContractFileChange"
+            :on-remove="onContractFileRemove"
+            :on-exceed="onFileExceed"
+          >
+            <el-button>选择文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">单个文件，大小不超过 50MB</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="contractDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitContract">提交</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import OpportunityAdvanceDialog from '@/components/OpportunityAdvanceDialog.vue'
 import ActivityDrawer from '@/components/ActivityDrawer.vue'
-import { LOSS_REASONS, loadOwnerOptions, type Option } from '@/config/options'
+import { LOSS_REASONS, PRODUCT_TYPES, loadOwnerOptions, type Option } from '@/config/options'
 
 const DAY = 86400000
 const THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
+
+const PROPOSAL_TYPES = [
+  { label: '初步方案', value: 'preliminary' },
+  { label: '正式方案', value: 'formal' },
+]
+const QUOTATION_TYPES = [
+  { label: '初步报价', value: 'preliminary' },
+  { label: '最终报价', value: 'final' },
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -356,6 +624,7 @@ const stageProgress = ref<any>(null)
 const proposals = ref<any[]>([])
 const quotations = ref<any[]>([])
 const contracts = ref<any[]>([])
+const competitors = ref<any[]>([])
 const activities = ref<any[]>([])
 const history = ref<any[]>([])
 const shares = ref<any[]>([])
@@ -381,11 +650,43 @@ const seaReason = ref('')
 const shareDialog = ref(false)
 const shareForm = reactive<any>({ shared_to: '', permissions: ['view', 'activity_create'] })
 
+const proposalDialog = ref(false)
+const quotationDialog = ref(false)
+const proposalUploadRef = ref<any>(null)
+const quotationUploadRef = ref<any>(null)
+const proposalFile = ref<File | null>(null)
+const quotationFile = ref<File | null>(null)
+const proposalForm = reactive<any>({ proposal_type: 'preliminary' })
+const quotationForm = reactive<any>({ quotation_type: 'preliminary', product_type: '', amount: 0, remark: '' })
+
+const competitorDialog = ref(false)
+const competitorMasters = ref<any[]>([])
+const competitorForm = reactive<any>({ competitor_master_id: '', name: '', strengths: '', weaknesses: '' })
+
+const contractDialog = ref(false)
+const contractUploadRef = ref()
+const contractFile = ref<File | null>(null)
+const contractForm = reactive<any>({
+  contract_no: '',
+  amount: 0,
+  signed_date: '',
+  signed_by: '',
+  contract_name: '',
+  product_type: '',
+})
+
 const id = computed(() => route.params.id as string)
 const canUpdate = computed(() => userStore.hasPerm('opportunity:update'))
 const canDelete = computed(() => userStore.hasPerm('opportunity:delete'))
 const canRollback = computed(() => userStore.isAdmin || userStore.hasPerm('opportunity:rollback'))
 const canActivityCreate = computed(() => userStore.hasPerm('activity:create'))
+const canProposalCreate = computed(() => userStore.hasPerm('proposal:create'))
+const canProposalDelete = computed(() => userStore.hasPerm('proposal:delete'))
+const canQuotationCreate = computed(() => userStore.hasPerm('quotation:create'))
+const canQuotationDelete = computed(() => userStore.hasPerm('quotation:delete'))
+const canCompetitorCreate = computed(() => userStore.hasPerm('competitor:create'))
+const canCompetitorDelete = computed(() => userStore.hasPerm('competitor:delete'))
+const canContractCreate = computed(() => userStore.hasPerm('contract:create'))
 const hasMore = computed(() => canUpdate.value || canDelete.value || canRollback.value)
 
 const missingCount = computed(() => (opp.value?.fixed_actions?.missing || []).length)
@@ -449,9 +750,10 @@ async function load() {
     const row = await api.getOpportunity(id.value)
     opp.value = row
     stageProgress.value = row.stage_progress
-    const [p, q, c, a, h, s] = await Promise.all([
+    const [p, q, cp, c, a, h, s] = await Promise.all([
       api.listProposals(id.value).catch(() => []),
       api.listQuotations(id.value).catch(() => []),
+      api.listCompetitors(id.value).catch(() => []),
       api.listOpportunityContracts(id.value).catch(() => []),
       api.listActivities({ opportunity_id: id.value, page_size: 100 }).catch(() => ({ list: [] })),
       api.opportunityTimeline(id.value).catch(() => []),
@@ -459,6 +761,7 @@ async function load() {
     ])
     proposals.value = p || []
     quotations.value = q || []
+    competitors.value = cp || []
     contracts.value = c || []
     activities.value = (a as any).list || []
     history.value = h || []
@@ -486,6 +789,318 @@ function goCustomer() {
 
 function openActivity() {
   activityDrawer.value = true
+}
+
+// ---------------------------------------------------------------- 方案 / 报价（M5，商机详情内直达）
+function openProposal(type = 'preliminary') {
+  proposalForm.proposal_type = type
+  proposalFile.value = null
+  proposalDialog.value = true
+  nextTick(() => proposalUploadRef.value?.clearFiles())
+}
+
+function resetProposalForm() {
+  proposalFile.value = null
+  proposalUploadRef.value?.clearFiles()
+}
+
+function onProposalFileChange(uf: any) {
+  proposalFile.value = uf?.raw || null
+}
+
+function onProposalFileRemove() {
+  proposalFile.value = null
+}
+
+async function submitProposal() {
+  if (!proposalForm.proposal_type) {
+    ElMessage.warning('请选择方案类型')
+    return
+  }
+  if (!proposalFile.value) {
+    ElMessage.warning('请选择方案附件')
+    return
+  }
+  submitting.value = true
+  try {
+    const uploaded = (await api.uploadFile(proposalFile.value)) as any
+    await api.createProposal(id.value, {
+      proposal_type: proposalForm.proposal_type,
+      file_storage_id: uploaded.file_storage_id,
+    })
+    ElMessage.success('方案已上传')
+    proposalDialog.value = false
+    await load()
+  } finally {
+    submitting.value = false
+  }
+}
+
+function openQuotation(type = 'preliminary') {
+  Object.assign(quotationForm, { quotation_type: type, product_type: '', amount: 0, remark: '' })
+  quotationFile.value = null
+  quotationDialog.value = true
+  nextTick(() => quotationUploadRef.value?.clearFiles())
+}
+
+function resetQuotationForm() {
+  quotationFile.value = null
+  quotationUploadRef.value?.clearFiles()
+}
+
+function onQuotationFileChange(uf: any) {
+  quotationFile.value = uf?.raw || null
+}
+
+function onQuotationFileRemove() {
+  quotationFile.value = null
+}
+
+async function submitQuotation() {
+  if (!quotationForm.quotation_type) {
+    ElMessage.warning('请选择报价类型')
+    return
+  }
+  if (!quotationForm.product_type) {
+    ElMessage.warning('请选择产品类型')
+    return
+  }
+  if (!quotationForm.amount) {
+    ElMessage.warning('请填写报价金额')
+    return
+  }
+  submitting.value = true
+  try {
+    let fileStorageId: string | undefined
+    if (quotationFile.value) {
+      const uploaded = (await api.uploadFile(quotationFile.value)) as any
+      fileStorageId = uploaded.file_storage_id
+    }
+    await api.createQuotation(id.value, {
+      quotation_type: quotationForm.quotation_type,
+      product_type: quotationForm.product_type,
+      amount: quotationForm.amount,
+      remark: quotationForm.remark || undefined,
+      file_storage_id: fileStorageId,
+    })
+    ElMessage.success('报价已上传')
+    quotationDialog.value = false
+    await load()
+  } finally {
+    submitting.value = false
+  }
+}
+
+function onFileExceed() {
+  ElMessage.warning('只能上传一个文件，请先移除已选文件')
+}
+
+function preview(url: string) {
+  window.open(url, '_blank')
+}
+
+function downloadAsset(row: any) {
+  if (!row.file_storage_id) {
+    ElMessage.warning('附件不存在')
+    return
+  }
+  api.downloadFile(row.file_storage_id, row.file_name)
+}
+
+async function removeProposal(row: any) {
+  await ElMessageBox.confirm(`确认删除方案「${row.file_name || '未命名'}」？`, '删除确认', { type: 'warning' })
+  await api.deleteProposal(row.id)
+  ElMessage.success('已删除')
+  await load()
+}
+
+async function removeQuotation(row: any) {
+  await ElMessageBox.confirm(`确认删除报价「${row.file_name || row.product_type || '未命名'}」？`, '删除确认', { type: 'warning' })
+  await api.deleteQuotation(row.id)
+  ElMessage.success('已删除')
+  await load()
+}
+
+// ---------------------------------------------------------------- 竞争对手（M5，商机详情内直达）
+async function openCompetitor() {
+  Object.assign(competitorForm, { competitor_master_id: '', name: '', strengths: '', weaknesses: '' })
+  competitorDialog.value = true
+  if (!competitorMasters.value.length) {
+    const res = await api.listCompetitorMasters({ page_size: 100 }).catch(() => ({ list: [] }))
+    competitorMasters.value = (res as any).list || []
+  }
+}
+
+function resetCompetitorForm() {
+  Object.assign(competitorForm, { competitor_master_id: '', name: '', strengths: '', weaknesses: '' })
+}
+
+/** 选中竞品主数据后自动带出名称与优劣势 */
+function onCompetitorMasterPick(masterId: string) {
+  const m = competitorMasters.value.find((x) => x.id === masterId)
+  if (!m) return
+  competitorForm.name = m.name || competitorForm.name
+  competitorForm.strengths = m.strengths || competitorForm.strengths
+  competitorForm.weaknesses = m.weaknesses || competitorForm.weaknesses
+}
+
+async function submitCompetitor() {
+  if (!competitorForm.name.trim()) {
+    ElMessage.warning('请输入竞品名称')
+    return
+  }
+  submitting.value = true
+  try {
+    await api.createCompetitor(id.value, {
+      name: competitorForm.name.trim(),
+      competitor_master_id: competitorForm.competitor_master_id || undefined,
+      strengths: competitorForm.strengths || undefined,
+      weaknesses: competitorForm.weaknesses || undefined,
+    })
+    ElMessage.success('竞争对手已新增')
+    competitorDialog.value = false
+    await load()
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function removeCompetitor(row: any) {
+  await ElMessageBox.confirm(`确认删除竞争对手「${row.name}」？`, '删除确认', { type: 'warning' })
+  await api.deleteCompetitor(row.id)
+  ElMessage.success('已删除')
+  await load()
+}
+
+// ---------------------------------------------------------------- 合同（M5，商机详情内直达）
+function genContractNo() {
+  const d = new Date()
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  return `HT-${ymd}-${String(Math.floor(Math.random() * 900) + 100)}`
+}
+
+function openContract() {
+  Object.assign(contractForm, {
+    contract_no: genContractNo(),
+    amount: Number(opp.value?.amount || 0),
+    signed_date: new Date().toISOString().slice(0, 10),
+    signed_by: userStore.profile?.id || '',
+    contract_name: opp.value?.name || '',
+    product_type: '',
+  })
+  contractFile.value = null
+  contractDialog.value = true
+  nextTick(() => contractUploadRef.value?.clearFiles())
+}
+
+function resetContractForm() {
+  contractFile.value = null
+  contractUploadRef.value?.clearFiles()
+}
+
+function onContractFileChange(uf: any) {
+  contractFile.value = uf?.raw || null
+}
+
+function onContractFileRemove() {
+  contractFile.value = null
+}
+
+async function submitContract() {
+  if (!contractForm.contract_no.trim()) {
+    ElMessage.warning('请输入合同编号')
+    return
+  }
+  if (contractForm.amount === undefined || contractForm.amount === null || Number(contractForm.amount) < 0) {
+    ElMessage.warning('请输入有效的合同金额')
+    return
+  }
+  if (!contractForm.signed_date) {
+    ElMessage.warning('请选择签订日期')
+    return
+  }
+  if (!contractForm.signed_by) {
+    ElMessage.warning('请选择签订人')
+    return
+  }
+  if (!contractFile.value) {
+    ElMessage.warning('请上传合同附件')
+    return
+  }
+  submitting.value = true
+  try {
+    const uploaded: any = await api.uploadFile(contractFile.value)
+    await api.createContract(id.value, {
+      contract_no: contractForm.contract_no.trim(),
+      amount: Number(contractForm.amount),
+      signed_date: contractForm.signed_date,
+      signed_by: contractForm.signed_by,
+      contract_name: contractForm.contract_name || undefined,
+      product_type: contractForm.product_type || undefined,
+      file_storage_id: uploaded.file_storage_id,
+    })
+    ElMessage.success('合同已创建')
+    contractDialog.value = false
+    await load()
+  } finally {
+    submitting.value = false
+  }
+}
+
+/** 固定动作未完成项的快捷入口文案（权限不足时不展示） */
+function quickLabel(item: any) {
+  if (item.done) return ''
+  const key = String(item.field_key || '')
+  if (key.startsWith('sys:proposal')) return canProposalCreate.value ? '去上传' : ''
+  if (key.startsWith('sys:quotation')) return canQuotationCreate.value ? '去上传' : ''
+  if (key.startsWith('sys:activity')) return canActivityCreate.value ? '去记录' : ''
+  if (key === 'sys:customer_contact') return userStore.hasPerm('customer:update') ? '去添加' : ''
+  if (key === 'sys:competitor') return userStore.hasPerm('competitor:create') ? '去创建' : ''
+  if (key.startsWith('sys:contract')) return userStore.hasPerm('contract:create') ? '去创建' : ''
+  if (key === 'sys:product_price') return userStore.hasPerm('quotation:create') ? '去创建' : ''
+  return canUpdate.value ? '去填写' : ''
+}
+
+/** 固定动作快捷跳转 */
+function runQuick(item: any) {
+  const key = String(item.field_key || '')
+  if (key === 'sys:activity' || key === 'sys:activity_presales') {
+    openActivity()
+    return
+  }
+  if (key === 'sys:proposal_preliminary') {
+    openProposal('preliminary')
+    return
+  }
+  if (key === 'sys:proposal_formal') {
+    openProposal('formal')
+    return
+  }
+  if (key === 'sys:quotation') {
+    openQuotation('preliminary')
+    return
+  }
+  if (key === 'sys:quotation_final') {
+    openQuotation('final')
+    return
+  }
+  if (key === 'sys:customer_contact') {
+    goCustomer()
+    return
+  }
+  if (key === 'sys:competitor') {
+    openCompetitor()
+    return
+  }
+  if (key.startsWith('sys:contract')) {
+    router.push('/contracts')
+    return
+  }
+  if (key === 'sys:product_price') {
+    router.push('/product-prices')
+    return
+  }
+  goEdit()
 }
 
 function onMore(cmd: string) {
@@ -690,6 +1305,17 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 600;
   color: var(--crm-text-regular);
+}
+
+.assets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0;
+}
+
+.assets-head .sub-title {
+  margin: 0;
 }
 
 .share-item {

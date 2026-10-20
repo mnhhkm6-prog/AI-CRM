@@ -51,11 +51,12 @@ function moveToSea({ entityType, entityId, reason = null, source = 'manual', use
 
   const recordId = newId();
   db.prepare(
-    `INSERT INTO sea_pool_records (id, entity_type, entity_id, entity_name, customer_id, reason, source, entered_at, is_claimed, status, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'in_sea', ?, ?, ?)`
+    `INSERT INTO sea_pool_records (id, entity_type, entity_id, entity_name, customer_id, reason, source, previous_owner,
+      entered_at, is_claimed, status, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'in_sea', ?, ?, ?)`
   ).run(
     recordId, entityType, entityId, row[m.nameCol], entityType === 'opportunity' ? row.customer_id : row.id,
-    reason, source, t, user ? user.id : null, t, t
+    reason, source, previousOwner, t, user ? user.id : null, t, t
   );
 
   logOperation({ user }, {
@@ -176,12 +177,55 @@ function list({ entityType = null, keyword = null, page, page_size, limit, offse
   const total = db.prepare(`SELECT COUNT(*) c FROM sea_pool_records r WHERE ${where}`).get(...params).c;
   const list = db
     .prepare(
-      `SELECT r.*, u.name AS claimed_by_name FROM sea_pool_records r
+      `SELECT r.*, u.name AS claimed_by_name, p.name AS previous_owner_name FROM sea_pool_records r
        LEFT JOIN users u ON u.id = r.claimed_by
+       LEFT JOIN users p ON p.id = r.previous_owner
        WHERE ${where} ORDER BY r.entered_at DESC LIMIT ? OFFSET ?`
     )
     .all(...params, limit, offset);
-  return { list, total, page, page_size };
+  return { list: attachEntityInfo(list), total, page, page_size };
+}
+
+/**
+ * 公海列表补充业务字段（列表只存了 entity_name，
+ * 线索还需要联系人/电话/微信/来源/关联客户，才能判断是否值得领取）
+ */
+function attachEntityInfo(list) {
+  const leadIds = [...new Set(list.filter((r) => r.entity_type === 'lead').map((r) => r.entity_id))];
+  if (!leadIds.length) return list;
+
+  const placeholders = leadIds.map(() => '?').join(',');
+  const leads = db
+    .prepare(
+      `SELECT id, contact_name, contact_phone, wechat, source_channel, customer_id, created_at
+       FROM leads WHERE id IN (${placeholders})`
+    )
+    .all(...leadIds);
+  const leadMap = new Map(leads.map((l) => [l.id, l]));
+
+  const customerIds = [...new Set(leads.map((l) => l.customer_id).filter(Boolean))];
+  const customerMap = new Map();
+  if (customerIds.length) {
+    const cp = customerIds.map(() => '?').join(',');
+    db.prepare(`SELECT id, name FROM customers WHERE id IN (${cp})`)
+      .all(...customerIds)
+      .forEach((c) => customerMap.set(c.id, c.name));
+  }
+
+  return list.map((r) => {
+    if (r.entity_type !== 'lead') return r;
+    const lead = leadMap.get(r.entity_id) || {};
+    return {
+      ...r,
+      contact_name: lead.contact_name || null,
+      contact_phone: lead.contact_phone || null,
+      wechat: lead.wechat || null,
+      source_channel: lead.source_channel || null,
+      customer_id: lead.customer_id || null,
+      customer_name: lead.customer_id ? customerMap.get(lead.customer_id) || null : null,
+      entity_created_at: lead.created_at || null,
+    };
+  });
 }
 
 /** 自动分配算法（M6-R7，P2）：按在途商机数升序分配给销售 */
