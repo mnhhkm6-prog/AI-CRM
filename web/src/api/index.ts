@@ -97,6 +97,8 @@ export const deleteLead = (id: string) => client.delete(`/leads/${id}`)
 export const assignLead = (id: string, ownerId: string) => client.post(`/leads/${id}/assign`, { owner_id: ownerId })
 export const convertLead = (id: string, body: any) =>
   client.post<any, { lead_id: string; opportunity_id: string }>(`/leads/${id}/convert`, body)
+export const convertLeadToCustomer = (id: string, body: any) =>
+  client.post<any, { lead_id: string; customer_id: string; customer: any }>(`/leads/${id}/convert-to-customer`, body)
 export const recycleLead = (id: string, reason: string) => client.post(`/leads/${id}/recycle`, { reason })
 
 /* ============================================================

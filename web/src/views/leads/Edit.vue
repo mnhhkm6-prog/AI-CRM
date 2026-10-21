@@ -13,7 +13,12 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="线索名称" prop="name">
-              <el-input v-model="form.name" maxlength="80" placeholder="请输入线索名称" />
+              <el-input v-model="form.name" maxlength="80" placeholder="请输入线索名称（内部标识/标题）" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="客户名称">
+              <el-input v-model="form.customer_name" maxlength="80" placeholder="客户/公司全称（选填）" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -111,7 +116,7 @@ const id = computed(() => (route.params.id as string) || '')
 const isEdit = computed(() => !!id.value)
 
 const form = reactive({
-  name: '', source_channel: '', contact_name: '', contact_phone: '', wechat: '',
+  name: '', customer_name: '', source_channel: '', contact_name: '', contact_phone: '', wechat: '',
   customer_id: '', owner_id: '', status: 'new', remark: '',
 })
 
@@ -147,6 +152,7 @@ async function save() {
   try {
     const payload: Record<string, any> = {
       name: form.name.trim(),
+      customer_name: form.customer_name.trim() || undefined,
       source_channel: form.source_channel,
       contact_name: form.contact_name.trim(),
       contact_phone: form.contact_phone || undefined,

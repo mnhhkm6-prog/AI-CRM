@@ -22,7 +22,7 @@
       <div class="filter-bar">
         <el-input
           v-model="query.keyword"
-          placeholder="线索名称 / 联系人 / 电话 / 微信"
+          placeholder="线索名称 / 客户名称 / 联系人 / 电话 / 微信"
           clearable
           style="width: 220px"
           @keyup.enter="reload"
@@ -74,8 +74,8 @@
               :type="statusTagType(row.status)"
               effect="plain"
             >{{ statusLabel(row.status) }}</el-tag>
-            <template v-else-if="col.key === 'customer_name'">
-              <el-link v-if="row.customer_id" type="primary" underline="never" @click="goCustomer(row)">{{ row.customer_name || '查看客户' }}</el-link>
+            <template v-else-if="col.key === 'linked_customer_name'">
+              <el-link v-if="row.customer_id" type="primary" underline="never" @click="goCustomer(row)">{{ row.linked_customer_name || '查看客户' }}</el-link>
               <span v-else class="text-muted">—</span>
             </template>
             <template v-else-if="col.key === 'created_at'">{{ fmt(row.created_at) }}</template>
@@ -91,6 +91,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item v-if="canAssign" command="assign">分配给销售</el-dropdown-item>
+                  <el-dropdown-item v-if="canConvertCustomer && !row.customer_id" command="to-customer">转客户</el-dropdown-item>
                   <el-dropdown-item v-if="canConvert && !row.opportunity_id" command="convert">转商机</el-dropdown-item>
                   <el-dropdown-item v-if="canRecycle && !row.is_in_sea" command="recycle">回收至公海</el-dropdown-item>
                   <el-dropdown-item v-if="canDelete && !row.opportunity_id" command="delete" divided>删除</el-dropdown-item>
@@ -130,6 +131,36 @@
       <template #footer>
         <el-button @click="assignDialog = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="confirmAssign">确认分配</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 转客户 -->
+    <el-dialog v-model="customerDialog" title="线索转客户" width="480px">
+      <el-form label-width="100px">
+        <el-form-item label="线索">{{ current?.name }}</el-form-item>
+        <el-form-item label="客户名称" required>
+          <el-input v-model="customerForm.customer_name" maxlength="80" placeholder="请输入客户名称" />
+        </el-form-item>
+        <el-form-item label="来源渠道" required>
+          <el-select v-model="customerForm.source_channel" placeholder="请选择来源渠道" style="width: 100%">
+            <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="客户负责人">
+          <el-select v-model="customerForm.owner_id" filterable placeholder="默认使用线索负责人" style="width: 100%">
+            <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="联系人">
+          <span class="text-muted">
+            {{ current?.contact_name || '—' }} {{ current?.contact_phone || current?.wechat || '' }}
+            （将自动写入客户主联系人）
+          </span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="customerDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="confirmConvertCustomer">确认转客户</el-button>
       </template>
     </el-dialog>
 
@@ -195,13 +226,14 @@ interface ListColumnDef extends ViewColumnDef {
 
 const COLUMN_DEFS: ListColumnDef[] = [
   { key: 'name', label: '线索名称', minWidth: 180, tooltip: true },
+  { key: 'customer_name', label: '客户名称', minWidth: 160, tooltip: true },
   { key: 'contact_name', label: '联系人', width: 100 },
   { key: 'contact_phone', label: '联系电话', width: 130 },
   { key: 'wechat', label: '微信号', width: 130 },
   { key: 'source_channel', label: '来源渠道', width: 110 },
   { key: 'status', label: '状态', width: 100, align: 'center' },
   { key: 'owner_name', label: '负责人', width: 100 },
-  { key: 'customer_name', label: '关联客户', minWidth: 140, tooltip: true },
+  { key: 'linked_customer_name', label: '关联客户', minWidth: 140, tooltip: true },
   { key: 'created_at', label: '录入时间', width: 150 },
 ]
 
@@ -262,12 +294,17 @@ const canUpdate = computed(() => userStore.hasPerm('lead:update'))
 const canDelete = computed(() => userStore.hasPerm('lead:delete'))
 const canAssign = computed(() => userStore.hasPerm('lead:assign'))
 const canConvert = computed(() => userStore.hasPerm('lead:convert'))
+const canConvertCustomer = computed(() => userStore.hasPerm('customer:create'))
 const canRecycle = computed(() => userStore.hasPerm('lead:recycle'))
 const scopeText = computed(() => userStore.scopeBadge('lead'))
 
 const current = ref<any>(null)
 const assignDialog = ref(false)
 const assignOwnerId = ref('')
+const customerDialog = ref(false)
+const customerForm = reactive<{ customer_name: string; source_channel: string; owner_id: string }>({
+  customer_name: '', source_channel: '', owner_id: '',
+})
 const convertDialog = ref(false)
 const convertForm = reactive<{ customer_id: string; opportunity_name: string; amount: number }>({
   customer_id: '', opportunity_name: '', amount: 0,
@@ -355,7 +392,8 @@ function onCommand(cmd: string, row: any) {
   if (cmd === 'assign') {
     assignOwnerId.value = row.owner_id || ''
     assignDialog.value = true
-  } else if (cmd === 'convert') openConvert(row)
+  } else if (cmd === 'to-customer') openCustomerConvert(row)
+  else if (cmd === 'convert') openConvert(row)
   else if (cmd === 'recycle') {
     recycleReason.value = ''
     recycleDialog.value = true
@@ -385,6 +423,37 @@ async function searchCustomers(keyword: string) {
     customerOptions.value = res.list || []
   } finally {
     customerLoading.value = false
+  }
+}
+
+function openCustomerConvert(row: any) {
+  customerForm.customer_name = row.customer_name || ''
+  customerForm.source_channel = row.source_channel || ''
+  customerForm.owner_id = row.owner_id || ''
+  customerDialog.value = true
+}
+
+async function confirmConvertCustomer() {
+  if (!customerForm.customer_name.trim()) {
+    ElMessage.warning('请输入客户名称')
+    return
+  }
+  if (!customerForm.source_channel) {
+    ElMessage.warning('请选择来源渠道')
+    return
+  }
+  submitting.value = true
+  try {
+    const res = await api.convertLeadToCustomer(current.value.id, {
+      customer_name: customerForm.customer_name.trim(),
+      source_channel: customerForm.source_channel,
+      owner_id: customerForm.owner_id || undefined,
+    })
+    ElMessage.success(`已转为客户「${res.customer?.name || customerForm.customer_name}」`)
+    customerDialog.value = false
+    await load()
+  } finally {
+    submitting.value = false
   }
 }
 

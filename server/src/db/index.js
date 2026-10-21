@@ -22,6 +22,7 @@ function migrate() {
   const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   db.exec(sql);
   ensureColumn('leads', 'wechat', 'wechat TEXT');
+  ensureColumn('leads', 'customer_name', 'customer_name TEXT');
   ensureColumn('sea_pool_records', 'previous_owner', 'previous_owner TEXT');
 }
 

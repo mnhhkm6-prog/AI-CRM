@@ -19,7 +19,7 @@ const seaService = require('../services/seaService');
 const stageEngine = require('../services/stageEngine');
 
 const SORTABLE = ['created_at', 'updated_at', 'name'];
-const EDITABLE = ['name', 'customer_id', 'contact_name', 'contact_phone', 'wechat', 'source_channel', 'owner_id', 'remark', 'status'];
+const EDITABLE = ['name', 'customer_name', 'customer_id', 'contact_name', 'contact_phone', 'wechat', 'source_channel', 'owner_id', 'remark', 'status'];
 
 /** 线索列表（M2-R2：数据权限 + 关键字 + 自定义字段筛选） */
 router.get('/leads', requirePermission('lead:view'), (req, res) => {
@@ -33,9 +33,9 @@ router.get('/leads', requirePermission('lead:view'), (req, res) => {
     params.push(...scope.params);
   }
   if (req.query.keyword) {
-    conditions.push('(t.name LIKE ? OR t.contact_name LIKE ? OR t.contact_phone LIKE ? OR t.wechat LIKE ?)');
+    conditions.push('(t.name LIKE ? OR t.customer_name LIKE ? OR t.contact_name LIKE ? OR t.contact_phone LIKE ? OR t.wechat LIKE ?)');
     const kw = `%${req.query.keyword}%`;
-    params.push(kw, kw, kw, kw);
+    params.push(kw, kw, kw, kw, kw);
   }
   ['status', 'source_channel', 'owner_id'].forEach((f) => {
     if (req.query[f]) {
@@ -58,8 +58,9 @@ router.get('/leads', requirePermission('lead:view'), (req, res) => {
   const sort = buildSort(req, SORTABLE);
   const list = db
     .prepare(
-      `SELECT t.*, u.name AS owner_name FROM leads t
+      `SELECT t.*, u.name AS owner_name, c.name AS linked_customer_name FROM leads t
        LEFT JOIN users u ON u.id = t.owner_id
+       LEFT JOIN customers c ON c.id = t.customer_id
        WHERE ${where}${sort.clause} LIMIT ? OFFSET ?`
     )
     .all(...params, paging.limit, paging.offset);
@@ -98,13 +99,14 @@ router.post('/leads', requirePermission('lead:create'), (req, res) => {
   const id = newId();
   const t = now();
   db.prepare(
-    `INSERT INTO leads (id, name, customer_id, contact_name, contact_phone, wechat, source_channel, status, owner_id,
+    `INSERT INTO leads (id, name, customer_name, customer_id, contact_name, contact_phone, wechat, source_channel, status, owner_id,
       is_in_sea, remark, created_by, is_deleted, created_at, updated_at)
-     VALUES (@id, @name, @customer_id, @contact_name, @contact_phone, @wechat, @source_channel, 'new', @owner_id,
+     VALUES (@id, @name, @customer_name, @customer_id, @contact_name, @contact_phone, @wechat, @source_channel, 'new', @owner_id,
       0, @remark, @created_by, 0, @t, @t)`
   ).run({
     id,
     name,
+    customer_name: optional(body, 'customer_name'),
     customer_id: customerId,
     contact_name: contactName,
     contact_phone: contactPhone,
@@ -129,6 +131,7 @@ router.get('/leads/:id', requirePermission('lead:view'), (req, res) => {
   if (!row) throw notFound('线索不存在或无权访问');
   row.custom_fields = customField.readValues('lead', row.id);
   row.owner_name = row.owner_id ? (db.prepare('SELECT name FROM users WHERE id = ?').get(row.owner_id) || {}).name : null;
+  row.linked_customer_name = row.customer_id ? (db.prepare('SELECT name FROM customers WHERE id = ?').get(row.customer_id) || {}).name : null;
   ok(res, row);
 });
 
@@ -194,6 +197,66 @@ router.post('/leads/:id/assign', requirePermission('lead:assign'), (req, res) =>
   ok(res, db.prepare('SELECT * FROM leads WHERE id = ?').get(lead.id));
 });
 
+/** 线索转客户（M2-R4 扩展）：以线索信息建档，联系人一并写入客户主联系人 */
+router.post('/leads/:id/convert-to-customer', requirePermission('customer:create'), (req, res) => {
+  const lead = dataScope.findScoped('lead', 'leads', req.params.id, req.user);
+  if (!lead) throw notFound('线索不存在或无权访问');
+  if (lead.customer_id) throw conflict('该线索已关联客户，请勿重复操作');
+  const body = bodyOf(req);
+
+  const name = String(optional(body, 'customer_name') || lead.customer_name || '').trim();
+  if (!name) throw badRequest('线索未填写客户名称，请填写客户名称后再转客户');
+  const sourceChannel = optional(body, 'source_channel') || lead.source_channel;
+  if (!String(sourceChannel || '').trim()) throw badRequest('来源渠道不能为空');
+
+  const dup = db.prepare('SELECT id, name FROM customers WHERE is_deleted = 0 AND name = ?').get(name);
+  if (dup && !body.ignore_duplicate) {
+    throw conflict(`客户「${name}」已存在，如确认不重复请传 ignore_duplicate=true`, CODE.DUPLICATE);
+  }
+
+  const customerId = newId();
+  const t = now();
+  const ownerId = body.owner_id || lead.owner_id || req.user.id;
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO customers (id, name, type, status, owner_id, source_channel, is_in_sea, last_activity_at,
+        remark, created_by, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, 'active', ?, ?, 0, ?, ?, ?, 0, ?, ?)`
+    ).run(
+      customerId, name, optional(body, 'type', '企业'), ownerId, sourceChannel, t,
+      optional(body, 'remark') || lead.remark || null, req.user.id, t, t
+    );
+
+    db.prepare(
+      `INSERT INTO customer_history (id, customer_id, action, after_snapshot, changed_by, created_at)
+       VALUES (?, ?, 'create', ?, ?, ?)`
+    ).run(newId(), customerId, JSON.stringify({ name, source_channel: sourceChannel, from_lead: lead.id }), req.user.id, t);
+
+    if (lead.contact_name) {
+      db.prepare(
+        `INSERT INTO contacts (id, customer_id, name, phone, wechat, is_primary, created_by, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, 0, ?, ?)`
+      ).run(newId(), customerId, lead.contact_name, lead.contact_phone || null, lead.wechat || null, req.user.id, t, t);
+    }
+
+    db.prepare(
+      `UPDATE leads SET customer_id = ?,
+        status = CASE WHEN status = 'new' THEN 'following' ELSE status END,
+        updated_at = ? WHERE id = ?`
+    ).run(customerId, t, lead.id);
+  });
+  tx();
+
+  logOperation(req, {
+    action: 'CONVERT_LEAD_TO_CUSTOMER',
+    targetType: 'Lead',
+    targetId: lead.id,
+    detail: { customer_id: customerId, name },
+  });
+  created(res, { lead_id: lead.id, customer_id: customerId, customer: db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) });
+});
+
 /** 线索转商机（M2-R4） */
 router.post('/leads/:id/convert', requirePermission('lead:convert'), (req, res) => {
   const lead = dataScope.findScoped('lead', 'leads', req.params.id, req.user);
@@ -215,7 +278,7 @@ router.post('/leads/:id/convert', requirePermission('lead:convert'), (req, res) 
 
   const oppId = newId();
   const t = now();
-  const oppName = body.opportunity_name ? String(body.opportunity_name).trim() : `${lead.name} 商机`;
+  const oppName = body.opportunity_name ? String(body.opportunity_name).trim() : `${lead.customer_name || lead.name} 商机`;
 
   const tx = db.transaction(() => {
     db.prepare(

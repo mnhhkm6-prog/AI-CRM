@@ -193,7 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_contacts_customer ON contacts(customer_id);
 -- ---------- M2 线索 ----------
 CREATE TABLE IF NOT EXISTS leads (
   id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
+  name TEXT NOT NULL,                     -- 线索名称（销售内部标识/标题）
+  customer_name TEXT,                     -- 客户/公司名称（转客户时使用）
   customer_id TEXT,
   contact_name TEXT,
   contact_phone TEXT,

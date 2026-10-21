@@ -10,6 +10,7 @@
         <div class="page-head__right">
           <el-button v-if="canUpdate" @click="goEdit">编辑</el-button>
           <el-button v-if="canAssign" @click="openAssign">分配给销售</el-button>
+          <el-button v-if="canConvertCustomer && !lead?.customer_id" @click="openCustomerConvert">转客户</el-button>
           <el-button v-if="canConvert && !lead?.opportunity_id" type="primary" @click="openConvert">转商机</el-button>
           <el-button v-if="canRecycle && !lead?.is_in_sea" @click="recycleDialog = true">回收至公海</el-button>
           <el-button v-if="canDelete && !lead?.opportunity_id" type="danger" plain @click="remove">删除</el-button>
@@ -21,6 +22,7 @@
           <div class="section-card">
             <h3 class="section-card__title">线索信息</h3>
             <el-descriptions :column="2" size="small" border>
+              <el-descriptions-item label="客户名称">{{ lead?.customer_name || '—' }}</el-descriptions-item>
               <el-descriptions-item label="来源渠道">{{ lead?.source_channel || '—' }}</el-descriptions-item>
               <el-descriptions-item label="负责人">{{ lead?.owner_name || '—' }}</el-descriptions-item>
               <el-descriptions-item label="联系人">{{ lead?.contact_name || '—' }}</el-descriptions-item>
@@ -66,6 +68,36 @@
       <template #footer>
         <el-button @click="assignDialog = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="confirmAssign">确认分配</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 转客户 -->
+    <el-dialog v-model="customerDialog" title="线索转客户" width="480px">
+      <el-form label-width="100px">
+        <el-form-item label="线索">{{ lead?.name }}</el-form-item>
+        <el-form-item label="客户名称" required>
+          <el-input v-model="customerForm.customer_name" maxlength="80" placeholder="请输入客户名称" />
+        </el-form-item>
+        <el-form-item label="来源渠道" required>
+          <el-select v-model="customerForm.source_channel" placeholder="请选择来源渠道" style="width: 100%">
+            <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="客户负责人">
+          <el-select v-model="customerForm.owner_id" filterable placeholder="默认使用线索负责人" style="width: 100%">
+            <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="联系人">
+          <span class="text-muted">
+            {{ lead?.contact_name || '—' }} {{ lead?.contact_phone || lead?.wechat || '' }}
+            （将自动写入客户主联系人）
+          </span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="customerDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="confirmConvertCustomer">确认转客户</el-button>
       </template>
     </el-dialog>
 
@@ -115,7 +147,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
-import { loadOwnerOptions, type Option } from '@/config/options'
+import { loadOwnerOptions, SOURCE_CHANNELS, type Option } from '@/config/options'
 
 const route = useRoute()
 const router = useRouter()
@@ -130,6 +162,10 @@ const owners = ref<Option[]>([])
 
 const assignDialog = ref(false)
 const assignOwnerId = ref('')
+const customerDialog = ref(false)
+const customerForm = reactive<{ customer_name: string; source_channel: string; owner_id: string }>({
+  customer_name: '', source_channel: '', owner_id: '',
+})
 const convertDialog = ref(false)
 const convertForm = reactive<{ customer_id: string; opportunity_name: string; amount: number }>({
   customer_id: '', opportunity_name: '', amount: 0,
@@ -143,6 +179,7 @@ const canUpdate = computed(() => userStore.hasPerm('lead:update'))
 const canDelete = computed(() => userStore.hasPerm('lead:delete'))
 const canAssign = computed(() => userStore.hasPerm('lead:assign'))
 const canConvert = computed(() => userStore.hasPerm('lead:convert'))
+const canConvertCustomer = computed(() => userStore.hasPerm('customer:create'))
 const canRecycle = computed(() => userStore.hasPerm('lead:recycle'))
 
 const customFieldEntries = computed(() => {
@@ -234,6 +271,37 @@ async function searchCustomers(keyword: string) {
     customerOptions.value = res.list || []
   } finally {
     customerLoading.value = false
+  }
+}
+
+function openCustomerConvert() {
+  customerForm.customer_name = lead.value?.customer_name || ''
+  customerForm.source_channel = lead.value?.source_channel || ''
+  customerForm.owner_id = lead.value?.owner_id || ''
+  customerDialog.value = true
+}
+
+async function confirmConvertCustomer() {
+  if (!customerForm.customer_name.trim()) {
+    ElMessage.warning('请输入客户名称')
+    return
+  }
+  if (!customerForm.source_channel) {
+    ElMessage.warning('请选择来源渠道')
+    return
+  }
+  submitting.value = true
+  try {
+    const res = await api.convertLeadToCustomer(id.value, {
+      customer_name: customerForm.customer_name.trim(),
+      source_channel: customerForm.source_channel,
+      owner_id: customerForm.owner_id || undefined,
+    })
+    ElMessage.success('已转为客户')
+    customerDialog.value = false
+    router.push(`/customers/${res.customer_id}`)
+  } finally {
+    submitting.value = false
   }
 }
 
