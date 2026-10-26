@@ -397,6 +397,8 @@ CREATE TABLE IF NOT EXISTS quotations (
   file_name TEXT,
   remark TEXT,
   uploaded_by TEXT,
+  approval_status TEXT DEFAULT 'none',    -- none / pending / approved / rejected / canceled
+  approval_instance_id TEXT,
   is_deleted INTEGER DEFAULT 0,
   created_at TEXT,
   updated_at TEXT
@@ -444,6 +446,8 @@ CREATE TABLE IF NOT EXISTS contracts (
   signed_date TEXT,
   signed_by TEXT,
   status TEXT DEFAULT 'active',           -- active / archived
+  approval_status TEXT DEFAULT 'none',    -- none / pending / approved / rejected / canceled
+  approval_instance_id TEXT,
   created_by TEXT,
   is_deleted INTEGER DEFAULT 0,
   created_at TEXT,
@@ -451,6 +455,76 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_opp ON contracts(opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_contracts_customer ON contracts(customer_id);
+
+-- ---------- M18 审批流引擎 ----------
+CREATE TABLE IF NOT EXISTS approval_flows (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  biz_type TEXT NOT NULL,                 -- quotation / contract
+  description TEXT,
+  priority INTEGER DEFAULT 100,           -- 数字越小优先级越高
+  is_enabled INTEGER DEFAULT 1,
+  conditions_json TEXT,                   -- [{field,op,value}]，多个条件为 AND
+  version INTEGER DEFAULT 1,
+  created_by TEXT,
+  is_deleted INTEGER DEFAULT 0,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approval_flows_biz ON approval_flows(biz_type);
+
+CREATE TABLE IF NOT EXISTS approval_flow_nodes (
+  id TEXT PRIMARY KEY,
+  flow_id TEXT NOT NULL,
+  node_name TEXT NOT NULL,
+  sort_order INTEGER DEFAULT 10,
+  node_type TEXT DEFAULT 'approval',      -- approval / cc（一期只执行 approval）
+  approve_mode TEXT DEFAULT 'any',        -- any 或签 / all 会签
+  approver_type TEXT NOT NULL,            -- user / role
+  approver_values TEXT,                   -- JSON 数组：用户 ID 或角色编码
+  timeout_hours INTEGER,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_flow_nodes_flow ON approval_flow_nodes(flow_id);
+
+CREATE TABLE IF NOT EXISTS approval_instances (
+  id TEXT PRIMARY KEY,
+  flow_id TEXT NOT NULL,
+  flow_name TEXT,
+  flow_version INTEGER,
+  biz_type TEXT NOT NULL,
+  biz_id TEXT NOT NULL,
+  biz_summary TEXT,
+  business_snapshot TEXT,                 -- JSON：金额、折扣率、商机等
+  status TEXT DEFAULT 'pending',          -- pending / approved / rejected / canceled
+  current_node_id TEXT,
+  current_node_name TEXT,
+  submitted_by TEXT,
+  submitted_at TEXT,
+  completed_at TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approval_instances_biz ON approval_instances(biz_type, biz_id);
+CREATE INDEX IF NOT EXISTS idx_approval_instances_submitter ON approval_instances(submitted_by);
+
+CREATE TABLE IF NOT EXISTS approval_tasks (
+  id TEXT PRIMARY KEY,
+  instance_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  node_name TEXT,
+  node_index INTEGER DEFAULT 0,
+  approve_mode TEXT DEFAULT 'any',
+  approver_id TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',          -- pending / approved / rejected / skipped
+  comment TEXT,
+  handled_at TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approval_tasks_instance ON approval_tasks(instance_id);
+CREATE INDEX IF NOT EXISTS idx_approval_tasks_approver ON approval_tasks(approver_id, status);
 
 -- ---------- M6 公海 ----------
 CREATE TABLE IF NOT EXISTS sea_pool_records (

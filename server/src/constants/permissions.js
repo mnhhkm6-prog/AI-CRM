@@ -91,6 +91,10 @@ const PERMISSIONS = [
   { code: 'view:manage', name: '视图管理', module: 'M15', action: 'manage' },
   { code: 'report_template:view', name: '报表模板查看', module: 'M15', action: 'view' },
   { code: 'report_template:manage', name: '报表模板管理', module: 'M15', action: 'manage' },
+  // M18 审批流
+  { code: 'approval:view', name: '审批中心查看', module: 'M18', action: 'view' },
+  { code: 'approval:approve', name: '审批处理', module: 'M18', action: 'approve' },
+  { code: 'approval:manage', name: '审批流配置', module: 'M18', action: 'manage' },
 ];
 
 const ALL_CODES = PERMISSIONS.map((p) => p.code);

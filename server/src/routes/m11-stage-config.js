@@ -76,6 +76,7 @@ router.get('/stage-options', requirePermission('opportunity:view'), (req, res) =
     stageEngine.listStages().map((s) => ({
       id: s.id, code: s.code, name: s.name, sort_order: s.sort_order,
       is_terminal: s.is_terminal, terminal_type: s.terminal_type,
+      alert_thresholds: parseJson(s.alert_thresholds, null),
     }))
   );
 });

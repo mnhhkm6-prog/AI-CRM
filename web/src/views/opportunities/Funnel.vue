@@ -26,7 +26,7 @@
           <el-option label="本季" value="quarter" />
         </el-select>
         <div class="filter-bar__spacer" />
-        <span class="text-muted">共 {{ items.length }} 个商机</span>
+        <span class="text-muted">主漏斗 {{ mainCount }} 个商机 · 待验证 {{ pendingCount }} 个</span>
         <el-button @click="load">刷新</el-button>
       </div>
 
@@ -35,6 +35,7 @@
           <div class="board-col__head">
             <span class="board-col__name">
               {{ col.name }}
+              <el-tag v-if="col.pending" size="small" type="warning" effect="plain">待验证</el-tag>
               <el-tag v-if="col.snapshot" size="small" type="info" effect="plain">历史</el-tag>
             </span>
             <span class="board-col__stat">共 {{ col.items.length }} · {{ fmtAmount(col.total) }}</span>
@@ -81,7 +82,8 @@ import OpportunityAdvanceDialog from '@/components/OpportunityAdvanceDialog.vue'
 import { loadOwnerOptions, type Option } from '@/config/options'
 
 const DAY = 86400000
-const THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
+/** 停滞预警阈值全局兜底，阶段可单独配置 */
+const DEFAULT_THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -106,15 +108,22 @@ const columns = computed(() => {
     .filter((s) => s.terminal_type !== 'loss')
     .map((s) => {
       const list = items.value.filter((o) => o.stage_config_id === s.id)
-      return { id: s.id, name: s.name, snapshot: false, items: list, total: sum(list) }
+      return { id: s.id, name: s.name, code: s.code, snapshot: false, pending: s.code === 'S0', items: list, total: sum(list) }
     })
   const known = new Set(stages.value.map((s) => s.id))
   const snapshots = items.value.filter((o) => !known.has(o.stage_config_id))
   if (snapshots.length) {
-    cols.push({ id: '__snapshot__', name: '历史快照阶段', snapshot: true, items: snapshots, total: sum(snapshots) })
+    cols.push({ id: '__snapshot__', name: '历史快照阶段', code: null, snapshot: true, pending: false, items: snapshots, total: sum(snapshots) })
   }
   return cols
 })
+
+/** 主漏斗不含 S0，S0 单独作为「待验证」口径 */
+const pendingCount = computed(() => items.value.filter((o) => {
+  const stage = stages.value.find((s: any) => s.id === o.stage_config_id)
+  return stage?.code === 'S0'
+}).length)
+const mainCount = computed(() => items.value.length - pendingCount.value)
 
 function sum(list: any[]) {
   return list.reduce((acc, o) => acc + Number(o.amount || 0), 0)
@@ -132,11 +141,22 @@ function stagnantDays(row: any) {
   return Math.max(0, Math.floor((Date.now() - new Date(base).getTime()) / DAY))
 }
 
+function thresholdsOf(stageId?: string) {
+  const stage = stages.value.find((s: any) => s.id === stageId)
+  const t = stage?.alert_thresholds || {}
+  return {
+    level1: Number(t.level1) || DEFAULT_THRESHOLDS.level1,
+    level2: Number(t.level2) || DEFAULT_THRESHOLDS.level2,
+    level3: Number(t.level3) || DEFAULT_THRESHOLDS.level3,
+  }
+}
+
 function alertLevel(row: any) {
   const d = stagnantDays(row)
-  if (d >= THRESHOLDS.level3) return 3
-  if (d >= THRESHOLDS.level2) return 2
-  if (d >= THRESHOLDS.level1) return 1
+  const th = thresholdsOf(row.stage_config_id)
+  if (d >= th.level3) return 3
+  if (d >= th.level2) return 2
+  if (d >= th.level1) return 1
   return 0
 }
 

@@ -17,6 +17,7 @@ const { newId, now } = require('../utils/ids');
 const { requirePermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
 const stageEngine = require('../services/stageEngine');
+const approvalFlow = require('../services/approvalFlow');
 const { logOperation } = require('../services/operationLog');
 
 const UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
@@ -267,6 +268,7 @@ router.post('/opportunities/:id/quotations', requirePermission('quotation:create
   ).run(id, opp.id, quotationType, amount, productType, fileStorageId, fileUrl, fileName, optional(body, 'remark'), req.user.id, t, t);
 
   stageEngine.touchOpportunity(opp.id, req);
+  approvalFlow.startFor('quotation', id, req);
   logOperation(req, { action: 'CREATE_QUOTATION', targetType: 'Quotation', targetId: id, detail: { opportunity_id: opp.id, amount } });
   created(res, db.prepare('SELECT * FROM quotations WHERE id = ?').get(id));
 });
@@ -275,6 +277,7 @@ router.delete('/quotations/:id', requirePermission('quotation:delete'), (req, re
   const quotation = db.prepare('SELECT * FROM quotations WHERE id = ? AND is_deleted = 0').get(req.params.id);
   if (!quotation) throw notFound('报价不存在');
   requireOpportunity(req, quotation.opportunity_id);
+  if (quotation.approval_status === 'pending') throw badRequest('报价审批中，暂不可删除');
   db.prepare('UPDATE quotations SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), quotation.id);
   logOperation(req, { action: 'DELETE_QUOTATION', targetType: 'Quotation', targetId: quotation.id, detail: { opportunity_id: quotation.opportunity_id } });
   ok(res, { id: quotation.id, deleted: true });
@@ -500,6 +503,7 @@ router.post('/opportunities/:id/contracts', requirePermission('contract:create')
     file.id, fileUrlOf(file), file.original_name, signedDate, signedBy, req.user.id, t, t
   );
   logOperation(req, { action: 'CREATE_CONTRACT', targetType: 'Contract', targetId: id, detail: { opportunity_id: opp.id, contract_no: contractNo } });
+  approvalFlow.startFor('contract', id, req);
   created(res, db.prepare('SELECT * FROM contracts WHERE id = ?').get(id));
 });
 
@@ -559,6 +563,7 @@ router.get('/contracts/:id', requirePermission('contract:view'), (req, res) => {
 router.put('/contracts/:id', requirePermission('contract:update'), (req, res) => {
   const before = dataScope.findScoped('contract', 'contracts', req.params.id, req.user);
   if (!before) throw notFound('合同不存在或无权访问');
+  if (before.approval_status === 'pending') throw badRequest('合同审批中，暂不可修改');
   const body = bodyOf(req);
 
   const after = {};
@@ -575,6 +580,13 @@ router.put('/contracts/:id', requirePermission('contract:update'), (req, res) =>
 
   const sets = Object.keys(after).map((f) => `${f} = @${f}`).join(', ');
   db.prepare(`UPDATE contracts SET ${sets}, updated_at = @t WHERE id = @id`).run({ ...after, id: before.id, t: now() });
+
+  // 合同金额发生变化时重新判定审批：命中条件则重新提交审批，否则视为无需审批
+  if (after.amount !== undefined && Number(after.amount) !== Number(before.amount)) {
+    db.prepare("UPDATE contracts SET approval_status = 'none', approval_instance_id = NULL WHERE id = ?").run(before.id);
+    approvalFlow.startFor('contract', before.id, req);
+  }
+
   logOperation(req, { action: 'UPDATE_CONTRACT', targetType: 'Contract', targetId: before.id, detail: { fields: Object.keys(after) } });
   ok(res, db.prepare('SELECT * FROM contracts WHERE id = ?').get(before.id));
 });
@@ -582,6 +594,7 @@ router.put('/contracts/:id', requirePermission('contract:update'), (req, res) =>
 router.delete('/contracts/:id', requirePermission('contract:delete'), (req, res) => {
   const row = dataScope.findScoped('contract', 'contracts', req.params.id, req.user);
   if (!row) throw notFound('合同不存在或无权访问');
+  if (row.approval_status === 'pending') throw badRequest('合同审批中，暂不可删除');
   db.prepare('UPDATE contracts SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
   logOperation(req, { action: 'DELETE_CONTRACT', targetType: 'Contract', targetId: row.id, detail: { contract_no: row.contract_no } });
   ok(res, { id: row.id, deleted: true });

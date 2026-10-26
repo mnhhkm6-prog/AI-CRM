@@ -62,9 +62,32 @@ export const readAllNotifications = () => client.post<any, { updated: number }>(
 
 export const listApprovals = (params?: PageQuery) => client.get<any, Paged<any>>('/approvals', { params })
 export const approvalSummary = () =>
-  client.get<any, { pending: number; done: number; can_approve: boolean; loss_pending: number; stagnation_pending: number }>(
-    '/approvals/summary'
-  )
+  client.get<any, {
+    pending: number
+    done: number
+    can_approve: boolean
+    loss_pending: number
+    stagnation_pending: number
+    approval_pending: number
+    my_pending_submissions: number
+  }>('/approvals/summary')
+
+/* ============================================================
+ * M18 审批流引擎
+ * ============================================================ */
+export const listApprovalFlows = (params?: PageQuery) => client.get<any, Paged<any>>('/approval-flows', { params })
+export const getApprovalFlow = (id: string) => client.get<any, any>(`/approval-flows/${id}`)
+export const createApprovalFlow = (body: any) => client.post<any, { id: string }>('/approval-flows', body)
+export const updateApprovalFlow = (id: string, body: any) => client.put(`/approval-flows/${id}`, body)
+export const deleteApprovalFlow = (id: string) => client.delete(`/approval-flows/${id}`)
+export const getApprovalOptions = () =>
+  client.get<any, { biz_types: any[]; fields: any[]; operators: string[]; roles: any[]; users: any[] }>('/approval-options')
+export const getApprovalInstance = (id: string) => client.get<any, any>(`/approval-instances/${id}`)
+export const approveInstance = (id: string, body?: any) => client.post(`/approval-instances/${id}/approve`, body || {})
+export const rejectInstance = (id: string, body: any) => client.post(`/approval-instances/${id}/reject`, body)
+export const cancelInstance = (id: string) => client.post(`/approval-instances/${id}/cancel`)
+export const resubmitApproval = (bizType: string, bizId: string) =>
+  client.post<any, any>('/approval-instances/resubmit', { biz_type: bizType, biz_id: bizId })
 
 /* ============================================================
  * M1 客户 / 联系人（P05/P06/P07）

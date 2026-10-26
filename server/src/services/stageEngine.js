@@ -13,6 +13,7 @@ const { db } = require('../db');
 const { newId, now, newBizNo } = require('../utils/ids');
 const { CODE, badRequest, notFound, conflict, forbidden } = require('../utils/errors');
 const customField = require('./customField');
+const approvalFlow = require('./approvalFlow');
 const { logOperation } = require('./operationLog');
 
 /** 核心字段白名单：无论配置如何，这些都必须在推进前具备 */
@@ -102,19 +103,24 @@ const SYS_CHECKS = {
     return { done: c > 0, value: `${c} 个竞争对手` };
   },
   'sys:contract': (opp) => {
-    const c = count('SELECT COUNT(*) c FROM contracts WHERE opportunity_id = ? AND is_deleted = 0', opp.id);
+    const c = count(
+      "SELECT COUNT(*) c FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND COALESCE(approval_status, 'none') IN ('none','approved')",
+      opp.id
+    );
     return { done: c > 0, value: `${c} 份合同` };
   },
   'sys:contract_amount': (opp) => {
     const row = db
-      .prepare('SELECT amount FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND amount > 0 ORDER BY created_at DESC')
+      .prepare(
+        "SELECT amount FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND amount > 0 AND COALESCE(approval_status, 'none') IN ('none','approved') ORDER BY created_at DESC"
+      )
       .get(opp.id);
     return { done: !!row, value: row ? row.amount : null };
   },
   'sys:contract_signed_date': (opp) => {
     const row = db
       .prepare(
-        "SELECT signed_date FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND signed_date IS NOT NULL AND signed_date <> '' ORDER BY created_at DESC"
+        "SELECT signed_date FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND signed_date IS NOT NULL AND signed_date <> '' AND COALESCE(approval_status, 'none') IN ('none','approved') ORDER BY created_at DESC"
       )
       .get(opp.id);
     return { done: !!row, value: row ? row.signed_date : null };
@@ -141,9 +147,13 @@ function proposalCheck(opp, type) {
 }
 
 function quotationCheck(opp, type) {
+  const approved = "COALESCE(approval_status, 'none') IN ('none','approved')";
   const c = type
-    ? count('SELECT COUNT(*) c FROM quotations WHERE opportunity_id = ? AND quotation_type = ? AND is_deleted = 0', opp.id, type)
-    : count('SELECT COUNT(*) c FROM quotations WHERE opportunity_id = ? AND is_deleted = 0', opp.id);
+    ? count(
+      `SELECT COUNT(*) c FROM quotations WHERE opportunity_id = ? AND quotation_type = ? AND is_deleted = 0 AND ${approved}`,
+      opp.id, type
+    )
+    : count(`SELECT COUNT(*) c FROM quotations WHERE opportunity_id = ? AND is_deleted = 0 AND ${approved}`, opp.id);
   return { done: c > 0, value: `${c} 条${type === 'final' ? '最终' : ''}报价` };
 }
 
@@ -416,7 +426,11 @@ function closeWin(opportunityId, payload, req) {
   if (!winStage) throw notFound('内置终态 WIN 未初始化');
 
   const c = payload.contract || {};
-  const existsContract = count('SELECT COUNT(*) c FROM contracts WHERE opportunity_id = ? AND is_deleted = 0', opp.id) > 0;
+  const existsContract =
+    count(
+      "SELECT COUNT(*) c FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND COALESCE(approval_status, 'none') IN ('none','approved')",
+      opp.id
+    ) > 0;
   if (!existsContract) {
     if (!c.contract_no && !c.amount) {
       throw badRequest('赢单需登记合同信息：请传 contract.contract_no 与 contract.amount');
@@ -425,6 +439,14 @@ function closeWin(opportunityId, payload, req) {
 
   let contractId = null;
   if (c.contract_no || c.amount || c.file_storage_id) {
+    const contractAmount = Number(c.amount || opp.amount || 0);
+    // 赢单时补录的合同若达到审批门槛，必须先走合同审批，避免绕过审批直接关单
+    const matchedFlow = approvalFlow.matchFlow('contract', { amount: contractAmount });
+    if (matchedFlow) {
+      throw badRequest(
+        `合同金额 ${contractAmount} 元已触发「${matchedFlow.name}」，请先在合同页签新增该合同并完成审批后再赢单`
+      );
+    }
     const signedDate = c.signed_date || now().slice(0, 10);
     contractId = newId();
     db.prepare(

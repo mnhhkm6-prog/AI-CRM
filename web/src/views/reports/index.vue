@@ -236,6 +236,7 @@ const summaryCards = computed<Array<{ label: string; value: string }>>(() => {
       { label: '商机总金额', value: money(d.summary.amount) },
       { label: '赢单数', value: money(d.summary.won_count) },
       { label: '赢单率', value: percent(d.summary.win_rate) },
+      { label: '待验证（S0）', value: `${money(d.summary.pending_count)} 个 · ${money(d.summary.pending_amount)}` },
     ]
   }
   if (current.value === 'stagnation') {
@@ -280,7 +281,7 @@ const summaryCards = computed<Array<{ label: string; value: string }>>(() => {
 const hasChart = computed(() => {
   const d = data.value
   if (!d || isTemplate.value) return false
-  if (current.value === 'funnel') return (d.list || []).length > 0
+  if (current.value === 'funnel') return (d.list || []).some((r: any) => r.stage_code !== 'S0')
   if (current.value === 'stagnation') return (d.by_level || []).length > 0
   if (current.value === 'loss') return (d.by_reason || []).length > 0
   return (d.stage_distribution || []).length > 0
@@ -304,7 +305,8 @@ function chartOption(): echarts.EChartsOption | null {
   if (!d) return null
   const PRIMARY = '#344d13'
   if (current.value === 'funnel') {
-    const rows = d.list || []
+    // 主漏斗从 S1 起算，S0 单独作为待验证口径
+    const rows = (d.list || []).filter((r: any) => r.stage_code !== 'S0')
     return {
       tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/>商机数：${money(p.value)}` },
       series: [
@@ -446,7 +448,11 @@ const tableRows = computed<any[]>(() => {
   const d = data.value
   if (!d) return []
   if (isTemplate.value) return d.rows || []
-  if (current.value === 'funnel') return d.list || []
+  if (current.value === 'funnel') {
+    return (d.list || []).map((r: any) =>
+      r.stage_code === 'S0' ? { ...r, stage_name: `${r.stage_name || '未分阶段'}（待验证）` } : r
+    )
+  }
   if (current.value === 'stagnation') return d.unadvanced_top || []
   if (current.value === 'loss') return d.by_reason || []
   if (current.value === 'personal') return d.stage_distribution || []

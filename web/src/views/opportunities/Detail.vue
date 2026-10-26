@@ -600,7 +600,8 @@ import ActivityDrawer from '@/components/ActivityDrawer.vue'
 import { LOSS_REASONS, PRODUCT_TYPES, loadOwnerOptions, type Option } from '@/config/options'
 
 const DAY = 86400000
-const THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
+/** 停滞预警阈值全局兜底，阶段可单独配置 */
+const DEFAULT_THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
 
 const PROPOSAL_TYPES = [
   { label: '初步方案', value: 'preliminary' },
@@ -707,9 +708,16 @@ const stagnantDays = computed(() => {
 
 const alertLevel = computed(() => {
   const d = stagnantDays.value
-  if (d >= THRESHOLDS.level3) return 3
-  if (d >= THRESHOLDS.level2) return 2
-  if (d >= THRESHOLDS.level1) return 1
+  const stage = stages.value.find((s: any) => s.id === opp.value?.stage_config_id)
+  const t = stage?.alert_thresholds || {}
+  const th = {
+    level1: Number(t.level1) || DEFAULT_THRESHOLDS.level1,
+    level2: Number(t.level2) || DEFAULT_THRESHOLDS.level2,
+    level3: Number(t.level3) || DEFAULT_THRESHOLDS.level3,
+  }
+  if (d >= th.level3) return 3
+  if (d >= th.level2) return 2
+  if (d >= th.level1) return 1
   return 0
 })
 

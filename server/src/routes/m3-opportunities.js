@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { ok, created, getPaging, paged, buildSort, requireString, optional, bodyOf } = require('../utils/http');
-const { notFound, badRequest } = require('../utils/errors');
+const { notFound, badRequest, conflict, CODE } = require('../utils/errors');
 const { newId, now } = require('../utils/ids');
 const { requirePermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
@@ -44,7 +44,7 @@ router.get('/opportunities', requirePermission('opportunity:view'), (req, res) =
   const conditions = ['t.is_deleted = 0'];
   const params = [];
 
-  const scope = dataScope.scopeFragment(req.user, 'opportunity');
+  const scope = dataScope.scopeFragment(req.user, 'opportunity', 't.owner_id');
   if (scope.sql) {
     conditions.push(scope.sql.replace(/^ AND /, ''));
     params.push(...scope.params);
@@ -97,6 +97,14 @@ router.post('/opportunities', requirePermission('opportunity:create'), (req, res
 
   const customer = dataScope.findScoped('customer', 'customers', customerId, req.user);
   if (!customer) throw notFound('所属客户不存在或无权访问');
+
+  // 商机查重：同一客户下不允许重复创建同名进行中商机
+  const dup = db
+    .prepare("SELECT id, name FROM opportunities WHERE is_deleted = 0 AND status = '进行中' AND customer_id = ? AND name = ?")
+    .get(customerId, name.trim());
+  if (dup && !body.ignore_duplicate) {
+    throw conflict('该客户下已存在同名进行中商机，如确认不重复请传 ignore_duplicate=true', CODE.DUPLICATE);
+  }
 
   const stage = body.stage_config_id ? stageEngine.getById(body.stage_config_id) : stageEngine.firstStage();
   if (!stage) throw notFound(body.stage_config_id ? '阶段不存在' : '漏斗起点阶段未初始化');

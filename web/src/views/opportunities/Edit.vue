@@ -70,7 +70,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import CustomFieldForm from '@/components/CustomFieldForm.vue'
@@ -135,7 +135,20 @@ async function save() {
       router.push(`/opportunities/${id.value}`)
     } else {
       payload.customer_id = form.customer_id
-      const res = await api.createOpportunity(payload)
+      let res
+      try {
+        res = await api.createOpportunity(payload)
+      } catch (e: any) {
+        if (e?.status !== 409) throw e
+        // 同一客户下已存在同名进行中商机，确认后可继续创建
+        const confirmed = await ElMessageBox.confirm('该客户下已存在同名进行中商机，仍要创建一个新的吗？', '商机重复提醒', {
+          type: 'warning',
+          confirmButtonText: '继续创建',
+          cancelButtonText: '取消',
+        }).then(() => true).catch(() => false)
+        if (!confirmed) return
+        res = await api.createOpportunity({ ...payload, ignore_duplicate: true })
+      }
       ElMessage.success('商机创建成功')
       router.push(`/opportunities/${res.id}`)
     }

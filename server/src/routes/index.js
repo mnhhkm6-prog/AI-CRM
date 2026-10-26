@@ -23,6 +23,7 @@ const modules = [
   ['./m15-views', 'M15 视图与报表配置'],
   ['./m16-implementation', 'M16 实施配置向导'],
   ['./m17-global', '全局搜索 / 通知中心 / 审批中心'],
+  ['./m18-approvals', 'M18 审批流配置与审批操作'],
 ];
 
 const loaded = [];

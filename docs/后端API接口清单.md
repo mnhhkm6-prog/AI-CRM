@@ -368,6 +368,27 @@
 | DELETE | `/implementation/templates/{id}` | 删除模板包 | system_config:manage | — |
 | POST | `/implementation/templates/{id}/upgrade` | 跨版本升级 M16-R4 | system_config:manage | body: `target_version` |
 
+### M18 审批流引擎（报价 / 合同）
+| 方法 | 路径 | 说明 | 权限 | 关键入参 |
+|---|---|---|---|---|
+| GET | `/approval-flows` | 审批流列表 | approval:manage | `biz_type,keyword` |
+| GET | `/approval-flows/{id}` | 审批流详情（含条件与节点） | approval:manage | — |
+| POST | `/approval-flows` | 新建审批流 | approval:manage | body: `name*,biz_type*,priority,description,is_enabled,conditions[{field,op,value}]*,nodes[{node_name,approve_mode,approver_type,approver_values[]}]` |
+| PUT | `/approval-flows/{id}` | 编辑审批流（version+1，节点重建） | approval:manage | 同上 |
+| DELETE | `/approval-flows/{id}` | 删除审批流（软删，不影响在途审批） | approval:manage | — |
+| GET | `/approval-options` | 编辑器下拉选项（业务类型/条件字段/运算符/角色/用户） | approval:manage | — |
+| GET | `/approval-instances/{id}` | 审批实例详情 + 审批链任务 | approval:view | — |
+| POST | `/approval-instances/{id}/approve` | 通过当前节点（或签一人即过，会签需全部通过） | approval:approve | body: `comment` |
+| POST | `/approval-instances/{id}/reject` | 驳回（终止审批并回写业务状态） | approval:approve | body: `comment*` |
+| POST | `/approval-instances/{id}/cancel` | 发起人撤回进行中的审批 | approval:view | — |
+| POST | `/approval-instances/resubmit` | 业务数据修正后重新发起审批 | approval:view | body: `biz_type*,biz_id*` |
+| GET | `/approvals` | 审批中心聚合列表（失效/停滞/报价/合同） | loss:view / alert:view / approval:view | `status:pending\|done\|mine\|all,type:loss\|stagnation\|quotation\|contract` |
+| GET | `/approvals/summary` | 待办统计（含 `approval_pending` 新引擎待办数） | 登录即可 | — |
+
+> 审批流匹配规则：同 `biz_type` 下按 `priority` 数字升序取第一条条件全部命中的启用流程；条件字段支持 `amount`（金额）/`discount_rate`（折扣率 = 报价金额 ÷ 商机金额）/`opportunity_amount`（商机金额）。
+> 审批人来源支持 `role`（角色编码）与 `user`（用户 ID）；节点审批人为空时自动顺延，全部为空则自动通过。
+> 报价/合同表新增 `approval_status`（none/pending/approved/rejected/canceled）与 `approval_instance_id`；审批中的单据禁止修改删除，且不计入阶段固定动作校验。
+
 ---
 
 ## 五、定时任务（对应四大引擎之三）

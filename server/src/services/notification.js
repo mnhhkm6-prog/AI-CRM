@@ -206,4 +206,4 @@ function markAllRead(user) {
   return r.changes;
 }
 
-module.exports = { syncForUser, list, unreadCount, markRead, markAllRead };
+module.exports = { syncForUser, list, unreadCount, markRead, markAllRead, push: upsert };

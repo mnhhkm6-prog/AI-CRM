@@ -24,6 +24,17 @@ function migrate() {
   ensureColumn('leads', 'wechat', 'wechat TEXT');
   ensureColumn('leads', 'customer_name', 'customer_name TEXT');
   ensureColumn('sea_pool_records', 'previous_owner', 'previous_owner TEXT');
+  ensureColumn('quotations', 'approval_status', "approval_status TEXT DEFAULT 'none'");
+  ensureColumn('quotations', 'approval_instance_id', 'approval_instance_id TEXT');
+  ensureColumn('contracts', 'approval_status', "approval_status TEXT DEFAULT 'none'");
+  ensureColumn('contracts', 'approval_instance_id', 'approval_instance_id TEXT');
+
+  // 起点阶段 S0 门槛低：默认使用更短的停滞阈值（占位商机更快暴露），已单独配置的不覆盖
+  const s0 = db.prepare("SELECT id, alert_thresholds FROM stage_configs WHERE code = 'S0'").get();
+  if (s0 && !s0.alert_thresholds) {
+    db.prepare('UPDATE stage_configs SET alert_thresholds = ? WHERE id = ?')
+      .run(JSON.stringify({ level1: 3, level2: 5, level3: 7 }), s0.id);
+  }
 }
 
 module.exports = { db, DB_FILE, DATA_DIR, migrate };

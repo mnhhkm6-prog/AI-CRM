@@ -95,8 +95,18 @@
             <template v-else>{{ row[col.key] }}</template>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="90" align="center" fixed="right">
+        <el-table-column label="审批状态" width="100" align="center">
           <template #default="{ row }">
+            <el-tag size="small" :type="approvalTag(row.approval_status)" effect="plain">
+              {{ approvalLabel(row.approval_status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-button v-if="row.approval_status === 'rejected'" link type="primary" @click="resubmit(row)">
+              重新提交
+            </el-button>
             <el-button v-if="canDelete" link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -273,6 +283,39 @@ function money(v?: number | string | null) {
 
 function quotationTypeLabel(t?: string) {
   return t === 'final' ? '最终报价' : '初步报价'
+}
+
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
+
+const APPROVAL_LABEL: Record<string, string> = {
+  none: '无需审批',
+  pending: '审批中',
+  approved: '已通过',
+  rejected: '已驳回',
+  canceled: '已撤回',
+}
+const APPROVAL_TAG: Record<string, TagType> = {
+  none: 'info',
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  canceled: 'info',
+}
+
+function approvalLabel(s?: string) {
+  return APPROVAL_LABEL[s || 'none'] || s || '无需审批'
+}
+
+function approvalTag(s?: string): TagType {
+  return APPROVAL_TAG[s || 'none'] || 'info'
+}
+
+async function resubmit(row: any) {
+  await ElMessageBox.confirm('确认按当前报价数据重新提交审批？', '重新提交', { type: 'warning' })
+  const res = await api.resubmitApproval('quotation', row.id)
+  if (res && res.submitted === false) ElMessage.warning(res.message || '当前数据未命中审批条件')
+  else ElMessage.success('已重新提交审批')
+  await load()
 }
 
 async function searchOpportunities(keyword: string) {

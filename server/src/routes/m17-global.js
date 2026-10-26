@@ -13,6 +13,7 @@ const { notFound } = require('../utils/errors');
 const { requireAnyPermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
 const notification = require('../services/notification');
+const approvalFlow = require('../services/approvalFlow');
 
 // ---------------------------------------------------------------- 全局搜索
 router.get('/search', (req, res) => {
@@ -129,7 +130,7 @@ function mapStagnation(row) {
   };
 }
 
-router.get('/approvals', requireAnyPermission(['loss:view', 'alert:view']), (req, res) => {
+router.get('/approvals', requireAnyPermission(['loss:view', 'alert:view', 'approval:view']), (req, res) => {
   const status = String(req.query.status || 'pending');
   const type = String(req.query.type || '');
   const paging = getPaging(req);
@@ -137,24 +138,29 @@ router.get('/approvals', requireAnyPermission(['loss:view', 'alert:view']), (req
 
   const isApprover = req.user.isAdmin || ['management'].includes(req.user.role_code);
 
-  if (type !== 'stagnation') {
+  if (!type || type === 'loss') {
     const cond = ['1 = 1'];
     const params = [];
-    if (status === 'pending') {
-      cond.push("lr.approval_status = 'pending'");
-    } else if (status === 'done') {
-      cond.push("lr.approval_status IN ('approved', 'rejected')");
-    } else if (status !== 'all') {
-      cond.push('lr.approval_status = ?');
-      params.push(status);
-    }
-    // 待办仅审批人可见；已办仅本人处理的可见（管理员/管理层看全部）
-    if (!isApprover) {
-      if (status === 'pending') cond.push('1 = 0');
-      else cond.push('lr.submitted_by = ?'), params.push(req.user.id);
-    } else if (status === 'done') {
-      cond.push('lr.approved_by = ?');
+    if (status === 'mine') {
+      cond.push('lr.submitted_by = ?');
       params.push(req.user.id);
+    } else {
+      if (status === 'pending') {
+        cond.push("lr.approval_status = 'pending'");
+      } else if (status === 'done') {
+        cond.push("lr.approval_status IN ('approved', 'rejected')");
+      } else if (status !== 'all') {
+        cond.push('lr.approval_status = ?');
+        params.push(status);
+      }
+      // 待办仅审批人可见；已办仅本人处理的可见（管理员/管理层看全部）
+      if (!isApprover) {
+        if (status === 'pending') cond.push('1 = 0');
+        else cond.push('lr.submitted_by = ?'), params.push(req.user.id);
+      } else if (status === 'done') {
+        cond.push('lr.approved_by = ?');
+        params.push(req.user.id);
+      }
     }
     const rows = db
       .prepare(
@@ -171,23 +177,28 @@ router.get('/approvals', requireAnyPermission(['loss:view', 'alert:view']), (req
     rows.forEach((r) => items.push(mapLoss(r)));
   }
 
-  if (type !== 'loss') {
+  if (!type || type === 'stagnation') {
     const cond = ['1 = 1'];
     const params = [];
-    if (status === 'pending') {
-      cond.push("se.status = 'pending'");
-    } else if (status === 'done') {
-      cond.push("se.status IN ('approved', 'rejected')");
-    } else if (status !== 'all') {
-      cond.push('se.status = ?');
-      params.push(status);
-    }
-    if (!isApprover) {
-      if (status === 'pending') cond.push('1 = 0');
-      else cond.push('se.submitted_by = ?'), params.push(req.user.id);
-    } else if (status === 'done') {
-      cond.push('se.approver_id = ?');
+    if (status === 'mine') {
+      cond.push('se.submitted_by = ?');
       params.push(req.user.id);
+    } else {
+      if (status === 'pending') {
+        cond.push("se.status = 'pending'");
+      } else if (status === 'done') {
+        cond.push("se.status IN ('approved', 'rejected')");
+      } else if (status !== 'all') {
+        cond.push('se.status = ?');
+        params.push(status);
+      }
+      if (!isApprover) {
+        if (status === 'pending') cond.push('1 = 0');
+        else cond.push('se.submitted_by = ?'), params.push(req.user.id);
+      } else if (status === 'done') {
+        cond.push('se.approver_id = ?');
+        params.push(req.user.id);
+      }
     }
     const rows = db
       .prepare(
@@ -202,6 +213,19 @@ router.get('/approvals', requireAnyPermission(['loss:view', 'alert:view']), (req
       )
       .all(...params);
     rows.forEach((r) => items.push(mapStagnation(r)));
+  }
+
+  // 新引擎审批（报价 / 合同）：pending=我的待办，done=我处理过的，mine=我发起的
+  if (!type || ['quotation', 'contract'].includes(type)) {
+    const tabs = status === 'all' ? ['pending', 'mine'] : [status === 'done' || status === 'mine' ? status : 'pending'];
+    const seen = new Set();
+    tabs.forEach((tab) => {
+      approvalFlow.center(req.user, { tab, type }).forEach((r) => {
+        if (seen.has(r.id)) return;
+        seen.add(r.id);
+        items.push(r);
+      });
+    });
   }
 
   items.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
@@ -225,13 +249,18 @@ router.get('/approvals/summary', (req, res) => {
   const mySubmitted = db
     .prepare("SELECT COUNT(*) c FROM loss_records WHERE submitted_by = ? AND approval_status = 'pending'")
     .get(req.user.id).c;
+  const enginePending = approvalFlow.pendingCountFor(req.user);
+  const engineMine = db
+    .prepare("SELECT COUNT(*) c FROM approval_instances WHERE submitted_by = ? AND status = 'pending'")
+    .get(req.user.id).c;
   ok(res, {
-    pending: lossPending + stagPending,
+    pending: lossPending + stagPending + enginePending,
     loss_pending: lossPending,
     stagnation_pending: stagPending,
+    approval_pending: enginePending,
     done: myDone,
-    my_pending_submissions: mySubmitted,
-    can_approve: isApprover,
+    my_pending_submissions: mySubmitted + engineMine,
+    can_approve: isApprover || enginePending > 0,
   });
 });
 

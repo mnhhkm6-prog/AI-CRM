@@ -31,6 +31,7 @@ const ROLE_DEFS = [
       'alert:view', // P22 停滞预警列表（仅本人数据，界面设计文档 2.3 默认菜单可见性）
       'report:view', // 支撑 M9-R4 销售个人报表
       'view:view', 'view:manage', // 支撑 M15-R1 个人视图配置（仅本人视图）
+      'approval:view', // 审批中心：查看自己发起的审批
     ],
     scopes: { customer: 'self', lead: 'self', opportunity: 'self', activity: 'self', proposal: 'self', quotation: 'self', contract: 'self' },
   },
@@ -44,7 +45,7 @@ const ROLE_DEFS = [
       'activity:view', 'activity:create', 'activity:update',
       'proposal:view', 'proposal:create', 'quotation:view', 'quotation:create',
       'competitor:view', 'competitor:create', 'contract:view', 'contract:create',
-      'file:upload', 'file:view', 'sea:view', 'report:view',
+      'file:upload', 'file:view', 'sea:view', 'report:view', 'approval:view',
     ],
     scopes: { customer: 'all', lead: 'all', opportunity: 'all', activity: 'all', proposal: 'all', quotation: 'all', contract: 'all' },
   },
@@ -56,7 +57,7 @@ const ROLE_DEFS = [
       'customer:view', 'contact:view', 'opportunity:view', 'opportunity:update',
       'activity:view', 'activity:create', 'proposal:view', 'proposal:create', 'proposal:update',
       'quotation:view', 'quotation:create', 'quotation:update',
-      'competitor:view', 'competitor:create', 'file:upload', 'file:view',
+      'competitor:view', 'competitor:create', 'file:upload', 'file:view', 'approval:view',
     ],
     scopes: { customer: 'custom', opportunity: 'custom', activity: 'custom', proposal: 'self', quotation: 'self' },
   },
@@ -66,7 +67,7 @@ const ROLE_DEFS = [
     sort: 40,
     perms: [
       'customer:view', 'contact:view', 'opportunity:view', 'activity:view', 'activity:create',
-      'competitor:view', 'file:view', 'file:upload',
+      'competitor:view', 'file:view', 'file:upload', 'approval:view',
     ],
     scopes: { customer: 'custom', opportunity: 'custom', activity: 'custom' },
   },
@@ -76,7 +77,7 @@ const ROLE_DEFS = [
     sort: 50,
     perms: [
       'proposal:view', 'quotation:view', 'quotation:create', 'quotation:update', 'competitor:view',
-      'contract:view', 'contract:update', 'file:view', 'report:view',
+      'contract:view', 'contract:update', 'file:view', 'report:view', 'approval:view',
     ],
     scopes: { proposal: 'all', quotation: 'all', contract: 'all' },
   },
@@ -92,6 +93,7 @@ const ROLE_DEFS = [
       'file:view', 'sea:view', 'sea:pickup', 'sea:assign', 'sea:manage',
       'alert:view', 'alert:manage', 'loss:view', 'loss:update', 'loss:approve',
       'report:view', 'report:export', 'view:view', 'view:manage', 'report_template:view', 'user:view',
+      'approval:view', 'approval:approve', 'approval:manage',
     ],
     scopes: { customer: 'all', lead: 'all', opportunity: 'all', activity: 'all', proposal: 'all', quotation: 'all', contract: 'all' },
   },
@@ -131,6 +133,8 @@ const STAGE_DEFS = [
   {
     code: 'S0', name: '客户数据录入', sort: 10, system: 1,
     entry: '各渠道获取客户信息', deliverables: '客户信息', roles: ['sales'],
+    // 起点阶段门槛低，使用更短的停滞阈值，让占位商机尽快暴露
+    thresholds: { level1: 3, level2: 5, level3: 7 },
     rules: [],
   },
   {
@@ -293,6 +297,45 @@ function seedRoles() {
       insPerm.run(newId(), role.id, `data_scope:${resource}`, 'data', scope, resource, cfg, t, t);
     });
   });
+
+  // 审批为新增能力：仅补齐缺失的 approval:* 权限，不影响管理员对既有权限的调整
+  ROLE_DEFS.forEach((r) => {
+    const role = db.prepare('SELECT * FROM roles WHERE role_code = ?').get(r.code);
+    r.perms.filter((code) => code.startsWith('approval:')).forEach((code) => {
+      const boundPerm = db
+        .prepare('SELECT id FROM role_permissions WHERE role_id = ? AND permission_code = ?')
+        .get(role.id, code);
+      if (!boundPerm) insPerm.run(newId(), role.id, code, 'function', null, null, null, t, t);
+    });
+  });
+}
+
+/** 预置审批流（仅在从未配置过任何流程时写入，避免删掉后每次启动重建） */
+function seedApprovalFlows() {
+  if (db.prepare('SELECT COUNT(*) c FROM approval_flows').get().c > 0) return;
+  const t = now();
+  const insFlow = db.prepare(
+    `INSERT INTO approval_flows (id, name, biz_type, description, priority, is_enabled, conditions_json, version, created_by, is_deleted, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, ?, 1, NULL, 0, ?, ?)`
+  );
+  const insNode = db.prepare(
+    `INSERT INTO approval_flow_nodes (id, flow_id, node_name, sort_order, node_type, approve_mode, approver_type, approver_values, timeout_hours, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'approval', ?, ?, ?, NULL, ?, ?)`
+  );
+
+  const quotationFlowId = newId();
+  insFlow.run(
+    quotationFlowId, '报价折扣审批', 'quotation', '报价低于商机金额 9 折时，需管理层审批',
+    10, JSON.stringify([{ field: 'discount_rate', op: '<', value: 0.9 }]), t, t
+  );
+  insNode.run(newId(), quotationFlowId, '管理层审批', 10, 'any', 'role', JSON.stringify(['management']), t, t);
+
+  const contractFlowId = newId();
+  insFlow.run(
+    contractFlowId, '大额合同审批', 'contract', '合同金额达到 50 万时，需管理层审批',
+    10, JSON.stringify([{ field: 'amount', op: '>=', value: 500000 }]), t, t
+  );
+  insNode.run(newId(), contractFlowId, '管理层审批', 10, 'any', 'role', JSON.stringify(['management']), t, t);
 }
 
 function seedDepartments() {
@@ -380,7 +423,7 @@ function seedStageConfigs() {
   const insStage = db.prepare(
     `INSERT INTO stage_configs
       (id, code, name, description, sort_order, is_enabled, is_terminal, terminal_type, entry_condition, deliverables, roles_json, alert_thresholds, version, is_system, created_at, updated_at)
-     VALUES (@id, @code, @name, @desc, @sort, 1, @terminal, @terminalType, @entry, @deliverables, @roles, NULL, 1, @system, @t, @t)`
+     VALUES (@id, @code, @name, @desc, @sort, 1, @terminal, @terminalType, @entry, @deliverables, @roles, @thresholds, 1, @system, @t, @t)`
   );
   const insRule = db.prepare(
     `INSERT INTO stage_action_rules
@@ -400,7 +443,9 @@ function seedStageConfigs() {
         id, code: s.code, name: s.name, desc: `${s.name}（出厂默认配置）`, sort: s.sort,
         terminal: s.terminal || 0, terminalType: s.terminalType || null,
         entry: s.entry || null, deliverables: s.deliverables || null,
-        roles: JSON.stringify(s.roles || []), system: s.system || 0, t,
+        roles: JSON.stringify(s.roles || []),
+        thresholds: s.thresholds ? JSON.stringify(s.thresholds) : null,
+        system: s.system || 0, t,
       });
       insLog.run(newId(), id, JSON.stringify({ code: s.code, name: s.name }), 'system', t);
       stage = db.prepare('SELECT * FROM stage_configs WHERE code = ?').get(s.code);
@@ -511,6 +556,7 @@ function seedAll() {
   migrate();
   seedPermissions();
   seedRoles();
+  seedApprovalFlows();
   seedDepartments();
   seedUsers();
   seedSystemConfigs();

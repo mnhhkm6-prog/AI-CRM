@@ -66,23 +66,33 @@ function buildFunnel(req) {
     }
   }
   const where = conditions.join(' AND ');
+  const from = 'FROM opportunities o LEFT JOIN stage_configs sc ON sc.id = o.stage_config_id';
 
   // 必须按阶段名称快照分组（PRD 15.2.7）
   const list = db
     .prepare(
-      `SELECT o.stage_name_snapshot AS stage_name, COUNT(*) AS count, COALESCE(SUM(o.amount), 0) AS amount
-       FROM opportunities o WHERE ${where}
-       GROUP BY o.stage_name_snapshot`
+      `SELECT o.stage_name_snapshot AS stage_name, sc.code AS stage_code,
+              COUNT(*) AS count, COALESCE(SUM(o.amount), 0) AS amount
+       ${from} WHERE ${where}
+       GROUP BY o.stage_name_snapshot, sc.code`
     )
     .all(...params);
 
+  // 主漏斗口径从 S1 起算，S0（客户数据录入）单独作为「待验证」统计
+  const mainWhere = `${where} AND (sc.code IS NULL OR sc.code <> 'S0')`;
   const row = db
     .prepare(
       `SELECT COUNT(*) AS count,
               COALESCE(SUM(o.amount), 0) AS amount,
               COALESCE(SUM(CASE WHEN o.status = '赢单' THEN 1 ELSE 0 END), 0) AS won_count,
               COALESCE(SUM(CASE WHEN o.status = '赢单' THEN o.amount ELSE 0 END), 0) AS won_amount
-       FROM opportunities o WHERE ${where}`
+       ${from} WHERE ${mainWhere}`
+    )
+    .get(...params);
+  const pending = db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(o.amount), 0) AS amount
+       ${from} WHERE ${where} AND sc.code = 'S0'`
     )
     .get(...params);
 
@@ -94,7 +104,10 @@ function buildFunnel(req) {
       won_count: row.won_count,
       won_amount: row.won_amount,
       win_rate: ratio(row.won_count, row.count),
+      pending_count: pending.count,
+      pending_amount: pending.amount,
     },
+    pending: { count: pending.count, amount: pending.amount },
     // 按生效阶段顺序返回，供前端补零展示
     stages: stageEngine.listStages().map((s) => ({
       code: s.code,

@@ -136,8 +136,19 @@ import ViewBar, { type ViewApplyState, type ViewColumnDef, type ViewFilterDef } 
 import { OPPORTUNITY_STATUS, loadOwnerOptions, type Option } from '@/config/options'
 
 const DAY = 86400000
-/** 停滞预警阈值默认值（全局兜底 7/14/21 天，PRD 4.6 / M11-R4） */
-const THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
+/** 停滞预警阈值全局兜底（PRD 4.6 / M11-R4），阶段可单独配置 */
+const DEFAULT_THRESHOLDS = { level1: 7, level2: 14, level3: 21 }
+
+/** 读取阶段自定义阈值，未配置的级别回落全局 */
+function thresholdsOf(stageId?: string) {
+  const stage = stages.value.find((s: any) => s.id === stageId)
+  const t = stage?.alert_thresholds || {}
+  return {
+    level1: Number(t.level1) || DEFAULT_THRESHOLDS.level1,
+    level2: Number(t.level2) || DEFAULT_THRESHOLDS.level2,
+    level3: Number(t.level3) || DEFAULT_THRESHOLDS.level3,
+  }
+}
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -228,9 +239,10 @@ function stagnantDays(row: any) {
 
 function alertLevel(row: any) {
   const d = stagnantDays(row)
-  if (d >= THRESHOLDS.level3) return 3
-  if (d >= THRESHOLDS.level2) return 2
-  if (d >= THRESHOLDS.level1) return 1
+  const th = thresholdsOf(row.stage_config_id)
+  if (d >= th.level3) return 3
+  if (d >= th.level2) return 2
+  if (d >= th.level1) return 1
   return 0
 }
 

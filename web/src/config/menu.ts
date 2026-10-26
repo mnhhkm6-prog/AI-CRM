@@ -67,7 +67,7 @@ export const MENU: MenuGroup[] = [
     children: [
       { title: '停滞预警', name: 'alerts', path: '/alerts', perm: 'alert:view', component: 'alerts/index' },
       { title: '未推进列表', name: 'unadvanced', path: '/unadvanced', perm: 'alert:manage', component: 'alerts/unadvanced' },
-      { title: '审批中心', name: 'approvals', path: '/approvals', perm: ['loss:approve', 'alert:manage'], component: 'approvals/index' },
+      { title: '审批中心', name: 'approvals', path: '/approvals', perm: ['loss:approve', 'alert:manage', 'approval:view'], component: 'approvals/index' },
       { title: '失效记录', name: 'loss-records', path: '/loss-records', perm: 'loss:view', component: 'loss/index' },
     ],
   },
@@ -86,6 +86,7 @@ export const MENU: MenuGroup[] = [
       { title: '用户管理', name: 'sys-users', path: '/system/users', perm: 'user:view', component: 'system/users' },
       { title: '角色权限', name: 'sys-roles', path: '/system/roles', perm: 'role:view', component: 'system/roles' },
       { title: '漏斗配置', name: 'sys-stages', path: '/system/stages', perm: 'stage_config:view', component: 'system/stages' },
+      { title: '审批流配置', name: 'sys-approval-flows', path: '/system/approval-flows', perm: 'approval:manage', component: 'system/approval-flows' },
       { title: '自定义字段', name: 'sys-custom-fields', path: '/system/custom-fields', perm: 'custom_field:view', component: 'system/custom-fields' },
       { title: '系统字典', name: 'sys-dictionaries', path: '/system/dictionaries', perm: 'dictionary:view', component: 'system/dictionaries' },
       { title: '报表模板', name: 'sys-report-templates', path: '/system/report-templates', perm: 'report_template:view', component: 'system/report-templates' },
