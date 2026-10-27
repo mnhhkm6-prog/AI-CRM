@@ -81,7 +81,7 @@
 | stage_configs | StageConfig | code,name,sort_order,is_enabled,is_terminal,terminal_type,entry_condition,deliverables,roles,alert_thresholds,version |
 | stage_action_rules | StageActionRule | stage_config_id,action_name,field_key,field_type,is_required,options,sort_order,is_enabled |
 | stage_config_change_logs | StageConfigChangeLog | stage_config_id,action,before_snapshot,after_snapshot,changed_by,version_after |
-| custom_field_definitions | CustomFieldDefinition | entity_type,field_code,field_name,field_type,is_required,default_value,options,field_group,sort_order,is_enabled,validation_rules,visible_roles,is_list_visible,is_dup_check |
+| custom_field_definitions | CustomFieldDefinition | entity_type,field_code,field_name,field_type,is_required,default_value,options,field_group,stage_config_id,sort_order,is_enabled,validation_rules,visible_roles,is_list_visible,is_dup_check |
 | custom_field_values | CustomFieldValue | entity_type,entity_id,field_definition_id,field_code,value_text,value_json,value_number,value_datetime |
 | dictionary_types | DictionaryType | dict_code,dict_name,category,is_system,is_enabled,version |
 | dictionary_items | DictionaryItem | dict_type_id,item_code,item_name,sort_order,is_default,is_enabled |
@@ -154,9 +154,9 @@
 | 方法 | 路径 | 说明 | 权限 | 关键入参 |
 |---|---|---|---|---|
 | GET | `/opportunities` | 商机列表 M3-R6 | opportunity:view | `page,keyword,status,stage_config_id,owner_id` |
-| POST | `/opportunities` | 新建商机 M3-R1 | opportunity:create | body: `name*,customer_id*,amount,expected_close_date,owner_id,stage_config_id` |
+| POST | `/opportunities` | 新建商机 M3-R1 | opportunity:create | body: `name*,customer_id*,amount,expected_close_date,owner_id,stage_config_id,custom_fields{}`；仅校验起点阶段关联的必填字段 |
 | GET | `/opportunities/{id}` | 商机详情 M3-R7 | opportunity:view | → 含阶段进度、固定动作完成度、时间轴 |
-| PUT | `/opportunities/{id}` | 编辑 | opportunity:update | — |
+| PUT | `/opportunities/{id}` | 编辑 | opportunity:update | body 可含 `custom_fields{}`；保存时校验当前阶段关联的必填字段，缺失返回 400 + `details[]` |
 | DELETE | `/opportunities/{id}` | 删除 | opportunity:delete | — |
 | POST | `/opportunities/batch` | 批量操作（转移/转公海/删除） | opportunity:update / delete | body: `action*=transfer\|release_to_sea\|delete,ids*[],owner_id,reason` → `{action,success[],failed[{id,reason}]}`（单次 ≤200） |
 | GET | `/opportunities/{id}/advance-check` | 推进前固定动作校验摘要 M3-R2 | opportunity:view | → `{stage,completeness:"3/5",items:[{key,name,done}]}` |
@@ -299,7 +299,7 @@
 | 方法 | 路径 | 说明 | 权限 | 关键入参 |
 |---|---|---|---|---|
 | GET | `/custom-fields` | 字段定义列表 M12-R1 | custom_field:view | `entity_type*` |
-| POST | `/custom-fields` | 新增字段定义 M12-R1/R2 | custom_field:manage | body: `entity_type*,field_code*,field_name*,field_type*,is_required,default_value,options[],field_group,sort_order,visible_roles[],is_list_visible,is_dup_check,validation_rules{}` |
+| POST | `/custom-fields` | 新增字段定义 M12-R1/R2 | custom_field:manage | body: `entity_type*,field_code*,field_name*,field_type*,stage_config_id(商机必填),is_required,default_value,options[],field_group,sort_order,visible_roles[],is_list_visible,is_dup_check,validation_rules{}` |
 | PUT | `/custom-fields/{id}` | 编辑字段 M12-R2（field_code 不可改） | custom_field:manage | — |
 | POST | `/custom-fields/{id}/toggle` | 启用/停用 M12-R2 | custom_field:manage | body: `is_enabled` |
 | DELETE | `/custom-fields/{id}` | 删除（被引用时 1007） | custom_field:manage | — |

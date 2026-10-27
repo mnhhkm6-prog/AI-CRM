@@ -28,6 +28,23 @@ function migrate() {
   ensureColumn('quotations', 'approval_instance_id', 'approval_instance_id TEXT');
   ensureColumn('contracts', 'approval_status', "approval_status TEXT DEFAULT 'none'");
   ensureColumn('contracts', 'approval_instance_id', 'approval_instance_id TEXT');
+  ensureColumn('custom_field_definitions', 'stage_config_id', 'stage_config_id TEXT');
+
+  // 存量商机自定义字段按固定动作规则回填所属阶段（仅回填一次，不覆盖人工调整）
+  db.exec(`
+    UPDATE custom_field_definitions
+    SET stage_config_id = (
+      SELECT r.stage_config_id
+      FROM stage_action_rules r
+      JOIN stage_configs s ON s.id = r.stage_config_id
+      WHERE r.field_key = custom_field_definitions.field_code
+      ORDER BY s.sort_order
+      LIMIT 1
+    )
+    WHERE entity_type = 'opportunity'
+      AND (stage_config_id IS NULL OR stage_config_id = '')
+      AND EXISTS (SELECT 1 FROM stage_action_rules r WHERE r.field_key = custom_field_definitions.field_code)
+  `);
 
   // 起点阶段 S0 门槛低：默认使用更短的停滞阈值（占位商机更快暴露），已单独配置的不覆盖
   const s0 = db.prepare("SELECT id, alert_thresholds FROM stage_configs WHERE code = 'S0'").get();

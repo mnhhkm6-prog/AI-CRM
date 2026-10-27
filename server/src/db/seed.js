@@ -465,6 +465,22 @@ function seedStageConfigs() {
       insRule.run(newId(), stage.id, r.name, r.key, r.type, r.required, options, r.tip || null, (i + 1) * 10, t, t);
     });
   });
+
+  // 新建库：阶段固定动作生成后，把商机自定义字段回填到所属阶段
+  db.exec(`
+    UPDATE custom_field_definitions
+    SET stage_config_id = (
+      SELECT r.stage_config_id
+      FROM stage_action_rules r
+      JOIN stage_configs s ON s.id = r.stage_config_id
+      WHERE r.field_key = custom_field_definitions.field_code
+      ORDER BY s.sort_order
+      LIMIT 1
+    )
+    WHERE entity_type = 'opportunity'
+      AND (stage_config_id IS NULL OR stage_config_id = '')
+      AND EXISTS (SELECT 1 FROM stage_action_rules r WHERE r.field_key = custom_field_definitions.field_code)
+  `);
 }
 
 function seedDictionaries() {

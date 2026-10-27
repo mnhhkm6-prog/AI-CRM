@@ -8,7 +8,7 @@
         </div>
       </div>
 
-      <el-form ref="formRef" v-loading="loading" :model="form" :rules="rules" label-width="110px" style="max-width: 820px">
+      <el-form ref="formRef" v-loading="loading" :model="form" :rules="rules" label-width="140px" style="max-width: 880px">
         <h3 class="section-card__title">商机信息</h3>
         <el-row :gutter="12">
           <el-col :span="12">
@@ -56,7 +56,13 @@
           </el-col>
         </el-row>
 
-        <CustomFieldForm v-model="customFields" entity-type="opportunity" title="阶段填写项" />
+        <CustomFieldForm
+          ref="customFieldRef"
+          v-model="customFields"
+          entity-type="opportunity"
+          title="阶段填写项"
+          :stage-id="currentStageId"
+        />
 
         <div class="form-actions">
           <el-button type="primary" :loading="submitting" @click="save">保存</el-button>
@@ -81,15 +87,25 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
+const customFieldRef = ref<any>()
 const loading = ref(false)
 const submitting = ref(false)
 const customerLoading = ref(false)
 const owners = ref<Option[]>([])
 const customerOptions = ref<any[]>([])
 const customFields = ref<Record<string, any>>({})
+const stageOptions = ref<any[]>([])
+const loadedStageId = ref('')
 
 const id = computed(() => (route.params.id as string) || '')
 const isEdit = computed(() => !!id.value)
+/** 编辑时为商机当前阶段；新建时为漏斗起点阶段 */
+const currentStageId = computed(
+  () =>
+    loadedStageId.value ||
+    stageOptions.value.find((s) => s.is_enabled === 1 && !s.is_terminal)?.id ||
+    ''
+)
 
 const form = reactive({
   name: '', customer_id: '', amount: 0, expected_close_date: '', owner_id: '', remark: '',
@@ -118,6 +134,12 @@ async function searchCustomers(keyword: string) {
 async function save() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
+  const missing = (customFieldRef.value?.validate?.() || []) as { field_code: string; field_name: string }[]
+  if (missing.length) {
+    ElMessage.warning(`请填写当前阶段必填项：${missing.map((m) => m.field_name).join('、')}`)
+    customFieldRef.value?.focusField?.(missing[0].field_code)
+    return
+  }
   submitting.value = true
   try {
     const payload: Record<string, any> = {
@@ -169,8 +191,18 @@ async function focusRequestedField() {
   input?.focus?.()
 }
 
+/** 阶段列表用于判断“当前阶段”的必填字段 */
+async function loadStages() {
+  try {
+    stageOptions.value = await api.stageOptions(true)
+  } catch (e) {
+    stageOptions.value = []
+  }
+}
+
 onMounted(async () => {
   owners.value = await loadOwnerOptions(userStore.hasPerm('user:view'), userStore.profile || undefined)
+  await loadStages()
   if (isEdit.value) {
     loading.value = true
     try {
@@ -182,6 +214,7 @@ onMounted(async () => {
       form.owner_id = row.owner_id || ''
       form.remark = row.remark || ''
       customFields.value = row.custom_fields || {}
+      loadedStageId.value = row.stage_config_id || ''
       if (row.customer_id) customerOptions.value = [{ id: row.customer_id, name: row.customer_name || '当前客户' }]
     } finally {
       loading.value = false

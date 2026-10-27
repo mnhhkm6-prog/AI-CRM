@@ -127,16 +127,40 @@ function setValues(entityType, entityId, values, userId, { partial = true } = {}
   }
 }
 
+/** 判断字段值是否为空（布尔 false 视为未完成） */
+function isEmptyValue(v) {
+  return v === undefined || v === null || v === '' || v === false || (Array.isArray(v) && v.length === 0);
+}
+
+/** 某阶段必填的自定义字段 */
+function stageRequiredDefs(entityType, stageId) {
+  if (!stageId) return [];
+  return db
+    .prepare(
+      `SELECT * FROM custom_field_definitions
+       WHERE entity_type = ? AND stage_config_id = ? AND is_required = 1 AND is_enabled = 1 AND is_deleted = 0
+       ORDER BY sort_order, field_code`
+    )
+    .all(entityType, stageId);
+}
+
 /** 必填校验：返回缺失字段清单（不含阶段固定动作） */
 function missingRequired(entityType, values) {
   const defs = listDefs(entityType).filter((d) => d.is_required === 1);
   const missing = [];
   defs.forEach((d) => {
-    const v = values ? values[d.field_code] : undefined;
-    const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
-    if (empty) missing.push({ field_code: d.field_code, field_name: d.field_name });
+    if (isEmptyValue(values ? values[d.field_code] : undefined)) {
+      missing.push({ field_code: d.field_code, field_name: d.field_name });
+    }
   });
   return missing;
+}
+
+/** 阶段必填校验：只校验当前阶段关联且标记必填的字段 */
+function missingStageRequired(entityType, stageId, values) {
+  return stageRequiredDefs(entityType, stageId)
+    .filter((d) => isEmptyValue(values ? values[d.field_code] : undefined))
+    .map((d) => ({ field_code: d.field_code, field_name: d.field_name }));
 }
 
 /** 读取实体在指定字段上的原始值（供阶段校验用） */
@@ -219,5 +243,6 @@ function referencesOf(def) {
 module.exports = {
   ENTITY_TYPES, JSON_TYPES, NUMBER_TYPES, DATE_TYPES, BOOL_TYPES,
   listDefs, defMap, serialize, deserialize, readValues, setValues,
-  missingRequired, valueOf, attach, buildFilter, referencesOf,
+  isEmptyValue, stageRequiredDefs, missingRequired, missingStageRequired,
+  valueOf, attach, buildFilter, referencesOf,
 };

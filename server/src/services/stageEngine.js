@@ -267,6 +267,30 @@ function evaluate(opp, stage) {
     });
   });
   if (stage) rulesOf(stage.id).forEach((r) => items.push(evaluateRule(opp, r)));
+
+  // 阶段必填的自定义字段：即使未配置成固定动作，也要在当前阶段校验
+  if (stage) {
+    const byKey = new Map(items.filter((i) => !i.core).map((i) => [i.field_key, i]));
+    customField.stageRequiredDefs('opportunity', stage.id).forEach((def) => {
+      const existing = byKey.get(def.field_code);
+      if (existing) {
+        if (!existing.done) existing.is_required = 1;
+        return;
+      }
+      const value = customField.valueOf('opportunity', opp.id, def.field_code);
+      items.push({
+        rule_id: `cf:${def.id}`,
+        action_name: def.field_name,
+        field_key: def.field_code,
+        field_type: def.field_type,
+        is_required: 1,
+        tip: '当前阶段必填字段',
+        value,
+        done: !customField.isEmptyValue(value),
+      });
+    });
+  }
+
   const required = items.filter((i) => i.is_required === 1);
   const missing = required.filter((i) => !i.done);
   return {

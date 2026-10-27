@@ -110,14 +110,23 @@ router.post('/opportunities', requirePermission('opportunity:create'), (req, res
   if (!stage) throw notFound(body.stage_config_id ? '阶段不存在' : '漏斗起点阶段未初始化');
   if (stage.is_enabled !== 1) throw badRequest(`阶段「${stage.name}」已停用，不可使用`);
 
+  // 只校验起点阶段关联的必填字段；后续阶段的必填项到阶段后再校验
+  const stageMissing = customField.missingStageRequired('opportunity', stage.id, body.custom_fields || {});
+  if (stageMissing.length) {
+    throw badRequest(
+      `当前阶段必填项未填写：${stageMissing.map((m) => m.field_name).join('、')}`,
+      null,
+      stageMissing
+    );
+  }
+
   let amount = 0;
   if (body.amount !== undefined && body.amount !== null && body.amount !== '') {
     amount = Number(body.amount);
     if (Number.isNaN(amount)) throw badRequest('amount 必须为数字');
   }
 
-  // 说明：自定义字段的必填校验属于「阶段固定动作」，仅在阶段推进时由 stageEngine 执行；
-  // 创建商机只需满足核心字段（name / customer_id），避免起点阶段即被拦死。
+  // 创建商机只需满足核心字段（name / customer_id）与起点阶段必填项，避免后续阶段字段把录入拦死。
   const id = newId();
   const t = now();
   db.prepare(
@@ -198,6 +207,20 @@ router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, 
     if (body[f] !== undefined) after[f] = body[f];
   });
   if (!Object.keys(after).length && !body.custom_fields) throw badRequest('没有可更新的字段');
+
+  // 必填项跟随当前阶段：仅校验当前阶段关联且标记必填的字段
+  const mergedCustomFields = {
+    ...customField.readValues('opportunity', before.id),
+    ...(body.custom_fields || {}),
+  };
+  const stageMissing = customField.missingStageRequired('opportunity', before.stage_config_id, mergedCustomFields);
+  if (stageMissing.length) {
+    throw badRequest(
+      `当前阶段必填项未填写：${stageMissing.map((m) => m.field_name).join('、')}`,
+      null,
+      stageMissing
+    );
+  }
 
   if (Object.keys(after).length) {
     const sets = Object.keys(after).map((f) => `${f} = @${f}`).join(', ');

@@ -1,9 +1,25 @@
 <template>
   <template v-if="defs.length">
     <h3 class="section-card__title">{{ title }}</h3>
+    <div v-if="entityType === 'opportunity' && defs.some((d) => d.stage_config_id)" class="cf-hint">
+      必填项跟随当前阶段：仅当前阶段字段标记必填，未到阶段可暂不填写。
+    </div>
     <el-row :gutter="12">
       <el-col v-for="def in defs" :key="def.field_code" :id="`field-${def.field_code}`" :span="12">
-        <el-form-item :label="def.field_name" :required="def.is_required === 1">
+        <el-form-item :required="isRequired(def)">
+          <template #label>
+            <span>{{ def.field_name }}</span>
+            <el-tag
+              v-if="def.stage_config_id"
+              size="small"
+              effect="plain"
+              :type="isStageRequired(def) ? 'danger' : 'info'"
+              :title="`${def.stage_name || def.stage_code}阶段${def.is_required === 1 ? '必填' : '选填'}`"
+              class="cf-stage-tag"
+            >
+              {{ def.stage_code || def.stage_name }}
+            </el-tag>
+          </template>
           <!-- 布尔 -->
           <el-switch v-if="def.field_type === 'boolean'" v-model="model[def.field_code]" />
 
@@ -85,9 +101,13 @@ import { DICT_LOCAL } from '@/config/options'
  * - 字段定义来自 /custom-fields（需 custom_field:view 权限）
  * - 无权限或该实体无自定义字段时不渲染
  */
-const props = withDefaults(defineProps<{ entityType: string; modelValue: Record<string, any>; title?: string }>(), {
-  title: '自定义字段',
-})
+const props = withDefaults(
+  defineProps<{ entityType: string; modelValue: Record<string, any>; title?: string; stageId?: string }>(),
+  {
+    title: '自定义字段',
+    stageId: '',
+  }
+)
 const model = defineModel<Record<string, any>>('modelValue', { required: true })
 
 const defs = ref<any[]>([])
@@ -103,6 +123,37 @@ function optionsOf(def: any): string[] {
   return DICT_LOCAL[def.options] || []
 }
 
+function isStageRequired(def: any): boolean {
+  return def.is_required === 1 && !!def.stage_config_id && def.stage_config_id === props.stageId
+}
+
+/** 仅当前阶段的字段显示必填；其他阶段字段保留展示但不校验 */
+function isRequired(def: any): boolean {
+  if (def.stage_config_id) return isStageRequired(def)
+  return def.is_required === 1
+}
+
+function isEmptyValue(v: any): boolean {
+  return v === undefined || v === null || v === '' || v === false || (Array.isArray(v) && v.length === 0)
+}
+
+/** 供父表单保存前校验：返回当前阶段未填的必填字段 */
+function validate(): { field_code: string; field_name: string }[] {
+  return defs.value
+    .filter((d) => isRequired(d) && isEmptyValue(model.value[d.field_code]))
+    .map((d) => ({ field_code: d.field_code, field_name: d.field_name }))
+}
+
+function focusField(code: string) {
+  const el = document.getElementById(`field-${code}`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const input = el.querySelector('input, textarea') as HTMLElement | null
+  input?.focus?.()
+}
+
+defineExpose({ validate, focusField })
+
 async function load() {
   try {
     defs.value = await api.listCustomFields(props.entityType)
@@ -117,3 +168,16 @@ watch(
   { immediate: true }
 )
 </script>
+
+<style scoped>
+.cf-hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.cf-stage-tag {
+  margin-left: 6px;
+  transform: scale(0.92);
+  transform-origin: left center;
+}
+</style>

@@ -12,7 +12,7 @@
         </div>
       </div>
 
-      <el-tabs v-model="entityType" @tab-change="load">
+      <el-tabs v-model="entityType" @tab-change="onTabChange">
         <el-tab-pane v-for="t in ENTITY_TABS" :key="t.key" :label="t.label" :name="t.key" />
       </el-tabs>
 
@@ -22,7 +22,12 @@
         <el-table-column label="字段类型" width="110">
           <template #default="{ row }">{{ fieldTypeLabel(row.field_type) }}</template>
         </el-table-column>
-        <el-table-column label="必填" width="70" align="center">
+        <el-table-column v-if="entityType === 'opportunity'" label="所属阶段" width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.stage_name ? `${row.stage_code} ${row.stage_name}` : '未关联' }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="entityType === 'opportunity' ? '该阶段必填' : '必填'" width="90" align="center">
           <template #default="{ row }">{{ isOn(row.is_required) ? '是' : '否' }}</template>
         </el-table-column>
         <el-table-column label="字段分组" width="110" show-overflow-tooltip>
@@ -65,7 +70,7 @@
 
     <!-- 新增 / 编辑字段（抽屉 480px） -->
     <el-drawer v-model="drawer" :title="editing ? '编辑字段' : '新增字段'" size="480px" @closed="resetForm">
-      <el-form label-width="100px">
+      <el-form label-width="120px">
         <el-form-item label="实体类型">
           <el-input :model-value="entityLabel(entityType)" disabled />
         </el-form-item>
@@ -81,13 +86,24 @@
             <el-option v-for="t in FIELD_TYPES" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="entityType === 'opportunity'" label="所属阶段" required>
+          <el-select v-model="form.stage_config_id" placeholder="请选择阶段" style="width: 100%">
+            <el-option
+              v-for="s in stages"
+              :key="s.id"
+              :label="`${s.code} ${s.name}`"
+              :value="s.id"
+            />
+          </el-select>
+          <div class="el-upload__tip">字段仅在该阶段显示为必填，未到阶段可暂不填写</div>
+        </el-form-item>
         <el-form-item label="字段分组">
           <el-input v-model="form.field_group" maxlength="60" placeholder="请输入字段分组（可空）" />
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sort_order" :min="0" :controls="false" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="是否必填">
+        <el-form-item :label="entityType === 'opportunity' ? '该阶段是否必填' : '是否必填'">
           <el-switch v-model="form.is_required" />
         </el-form-item>
         <el-form-item label="是否列表可见">
@@ -185,6 +201,7 @@ const refLoading = ref(false)
 
 const entityType = ref('customer')
 const items = ref<any[]>([])
+const stages = ref<any[]>([])
 
 const drawer = ref(false)
 const editing = ref<any>(null)
@@ -198,6 +215,7 @@ const form = reactive<any>({
   field_name: '',
   field_type: 'text',
   field_group: '',
+  stage_config_id: '',
   sort_order: 0,
   is_required: false,
   is_list_visible: true,
@@ -242,6 +260,25 @@ async function load() {
   }
 }
 
+/** 商机字段需要选择所属阶段 */
+async function loadStages() {
+  if (!userStore.hasPerm('opportunity:view')) return
+  try {
+    stages.value = await api.stageOptions(true)
+  } catch (e) {
+    stages.value = []
+  }
+}
+
+function defaultStageId() {
+  return stages.value.find((s) => s.is_enabled === 1 && !s.is_terminal)?.id || ''
+}
+
+function onTabChange() {
+  load()
+  if (entityType.value === 'opportunity' && !stages.value.length) loadStages()
+}
+
 function openCreate() {
   editing.value = null
   Object.assign(form, {
@@ -249,6 +286,7 @@ function openCreate() {
     field_name: '',
     field_type: 'text',
     field_group: '',
+    stage_config_id: entityType.value === 'opportunity' ? defaultStageId() : '',
     sort_order: 0,
     is_required: false,
     is_list_visible: true,
@@ -266,6 +304,7 @@ function openEdit(row: any) {
     field_name: row.field_name || '',
     field_type: row.field_type || 'text',
     field_group: row.field_group || '',
+    stage_config_id: row.stage_config_id || '',
     sort_order: row.sort_order ?? 0,
     is_required: isOn(row.is_required),
     is_list_visible: isOn(row.is_list_visible),
@@ -293,6 +332,10 @@ async function confirmSubmit() {
     ElMessage.warning('请选择字段类型')
     return
   }
+  if (entityType.value === 'opportunity' && !form.stage_config_id) {
+    ElMessage.warning('请选择所属阶段')
+    return
+  }
   submitting.value = true
   try {
     const body: Record<string, any> = {
@@ -306,6 +349,7 @@ async function confirmSubmit() {
       default_value: form.default_value.trim() || null,
       options: showOptions.value ? form.options : [],
     }
+    if (entityType.value === 'opportunity') body.stage_config_id = form.stage_config_id
     if (editing.value) {
       await api.updateCustomField(editing.value.id, body)
       ElMessage.success('已保存')
@@ -359,6 +403,7 @@ async function openReferences(row: any) {
 
 onMounted(() => {
   load()
+  loadStages()
 })
 </script>
 

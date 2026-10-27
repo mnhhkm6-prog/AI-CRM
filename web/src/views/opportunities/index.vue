@@ -355,15 +355,15 @@ function onFill(item: any) {
     const tabMap: Record<string, string> = {
       'sys:activity': 'activity',
       'sys:activity_presales': 'activity',
-      'sys:proposal_preliminary': 'proposal',
-      'sys:proposal_formal': 'proposal',
-      'sys:quotation': 'proposal',
-      'sys:quotation_final': 'proposal',
-      'sys:product_price': 'proposal',
-      'sys:competitor': 'competitor',
-      'sys:contract': 'contract',
-      'sys:contract_amount': 'contract',
-      'sys:contract_signed_date': 'contract',
+      'sys:proposal_preliminary': 'assets',
+      'sys:proposal_formal': 'assets',
+      'sys:quotation': 'assets',
+      'sys:quotation_final': 'assets',
+      'sys:product_price': 'assets',
+      'sys:competitor': 'competitors',
+      'sys:contract': 'contracts',
+      'sys:contract_amount': 'contracts',
+      'sys:contract_signed_date': 'contracts',
     }
     router.push({ path: `/opportunities/${currentId.value}`, query: { tab: tabMap[key] || 'actions' } })
     return

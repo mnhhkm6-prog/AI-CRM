@@ -614,6 +614,7 @@ CREATE TABLE IF NOT EXISTS custom_field_definitions (
   default_value TEXT,
   options TEXT,
   field_group TEXT,
+  stage_config_id TEXT,                   -- 商机字段所属阶段（仅该阶段校验必填）
   sort_order INTEGER DEFAULT 0,
   is_enabled INTEGER DEFAULT 1,
   validation_rules TEXT,

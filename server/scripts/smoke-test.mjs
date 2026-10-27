@@ -103,7 +103,13 @@ async function main() {
   console.log('\n【M2 线索管理】');
   const lead = await api('POST', '/leads', {
     user: 'sales01',
-    body: { name: `冒烟线索${stamp}`, source_channel: '展会', customer_id: customerId, contact_phone: '13800000000' },
+    body: {
+      name: `冒烟线索${stamp}`,
+      source_channel: '展会',
+      customer_id: customerId,
+      contact_name: '冒烟联系人',
+      contact_phone: '13800000000',
+    },
   });
   const leadId = lead.body?.data?.id;
   check('POST /leads 线索录入', lead.status === 201 && !!leadId, lead.body);
@@ -422,9 +428,11 @@ async function main() {
   const fields = await api('GET', '/custom-fields?entity_type=opportunity', { user: 'admin' });
   check('GET /custom-fields 商机自定义字段（出厂 9 个）', fields.status === 200 && fields.body.data.length >= 9, fields.body);
 
+  const stageOptions = await api('GET', '/stage-options', { user: 'admin' });
+  const stageS1 = (stageOptions.body?.data || []).find((s) => s.code === 'S1');
   const newField = await api('POST', '/custom-fields', {
     user: 'admin',
-    body: { entity_type: 'opportunity', field_code: `smoke_field_${stamp}`, field_name: '冒烟字段', field_type: 'text' },
+    body: { entity_type: 'opportunity', field_code: `smoke_field_${stamp}`, field_name: '冒烟字段', field_type: 'text', stage_config_id: stageS1?.id },
   });
   check('POST /custom-fields 新增字段定义', newField.status === 201, newField.body);
 

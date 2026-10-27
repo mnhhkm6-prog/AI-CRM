@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { ok, created, requireString, optional, bodyOf } = require('../utils/http');
-const { badRequest, notFound, conflict, CODE } = require('../utils/errors');
+const { badRequest, notFound, conflict, forbidden, CODE } = require('../utils/errors');
 const { newId, now } = require('../utils/ids');
 const { requirePermission } = require('../middleware/permission');
 const customField = require('../services/customField');
@@ -27,12 +27,26 @@ function parseJson(text, fallback = null) {
 const jsonOrNull = (v) => (v === undefined || v === null ? null : JSON.stringify(v));
 
 function decorate(def) {
+  const stage = def.stage_config_id
+    ? db.prepare('SELECT code, name FROM stage_configs WHERE id = ?').get(def.stage_config_id)
+    : null;
   return {
     ...def,
     options: parseJson(def.options, []),
     validation_rules: parseJson(def.validation_rules, null),
     visible_roles: parseJson(def.visible_roles, []),
+    stage_code: stage ? stage.code : null,
+    stage_name: stage ? stage.name : null,
   };
+}
+
+/** 商机字段必须关联有效阶段；其他实体忽略该字段 */
+function resolveStageId(entityType, raw) {
+  if (entityType !== 'opportunity') return null;
+  if (!raw) throw badRequest('商机字段必须选择所属阶段');
+  const stage = db.prepare('SELECT id FROM stage_configs WHERE id = ?').get(raw);
+  if (!stage) throw badRequest('所属阶段不存在');
+  return raw;
 }
 
 function defOr404(id) {
@@ -84,6 +98,7 @@ router.post('/custom-fields', requirePermission('custom_field:manage'), (req, re
   const fieldCode = requireString(body, 'field_code', '字段编码');
   const fieldName = requireString(body, 'field_name', '字段名称');
   const fieldType = requireString(body, 'field_type', '字段类型');
+  const stageId = resolveStageId(entityType, body.stage_config_id);
   // 字段编码在软删除后仍占位（表级 UNIQUE(entity_type, field_code)），故此处不排除已删除记录
   if (db.prepare('SELECT id FROM custom_field_definitions WHERE entity_type = ? AND field_code = ?').get(entityType, fieldCode)) {
     throw conflict(`字段编码「${fieldCode}」在该实体下已存在`, CODE.DUPLICATE);
@@ -92,12 +107,12 @@ router.post('/custom-fields', requirePermission('custom_field:manage'), (req, re
   const t = now();
   db.prepare(
     `INSERT INTO custom_field_definitions
-      (id, entity_type, field_code, field_name, field_type, is_required, default_value, options, field_group, sort_order,
+      (id, entity_type, field_code, field_name, field_type, is_required, default_value, options, field_group, stage_config_id, sort_order,
        is_enabled, validation_rules, visible_roles, is_list_visible, is_dup_check, is_system, is_deleted, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
   ).run(
     id, entityType, fieldCode, fieldName, fieldType, body.is_required ? 1 : 0, optional(body, 'default_value'),
-    jsonOrNull(body.options), optional(body, 'field_group'), Number(body.sort_order) || 0,
+    jsonOrNull(body.options), optional(body, 'field_group'), stageId, Number(body.sort_order) || 0,
     body.is_enabled === false ? 0 : 1, jsonOrNull(body.validation_rules), jsonOrNull(body.visible_roles),
     body.is_list_visible === false ? 0 : 1, body.is_dup_check ? 1 : 0, t, t
   );
@@ -140,6 +155,7 @@ router.put('/custom-fields/:id', requirePermission('custom_field:manage'), (req,
     if (body[f] !== undefined) fields[f] = body[f];
   });
   if (body.is_required !== undefined) fields.is_required = body.is_required ? 1 : 0;
+  if (body.stage_config_id !== undefined) fields.stage_config_id = resolveStageId(def.entity_type, body.stage_config_id);
   if (body.options !== undefined) fields.options = jsonOrNull(body.options);
   if (body.sort_order !== undefined) fields.sort_order = Number(body.sort_order) || 0;
   if (body.is_enabled !== undefined) fields.is_enabled = body.is_enabled ? 1 : 0;
