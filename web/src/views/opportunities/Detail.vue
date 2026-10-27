@@ -33,7 +33,7 @@
         <div class="detail-main">
           <div class="section-card">
             <div class="stage-flow">
-              <template v-for="(s, i) in stageProgress?.stages || []" :key="s.id">
+              <template v-for="(s, i) in flowStages" :key="s.id">
                 <span v-if="i > 0" class="stage-flow__arrow">→</span>
                 <span
                   :class="[
@@ -93,8 +93,8 @@
                   <el-descriptions-item label="创建时间">{{ fmt(opp?.created_at) }}</el-descriptions-item>
                   <el-descriptions-item label="最后推进">{{ fmt(opp?.last_activity_at) }}</el-descriptions-item>
                   <el-descriptions-item label="备注" :span="2">{{ opp?.remark || '—' }}</el-descriptions-item>
-                  <el-descriptions-item v-for="(v, k) in customFieldEntries" :key="k" :label="String(k)">
-                    {{ formatCustom(v) }}
+                  <el-descriptions-item v-for="(item, idx) in customFieldEntries" :key="idx" :label="item.label">
+                    {{ item.value }}
                   </el-descriptions-item>
                 </el-descriptions>
               </el-tab-pane>
@@ -141,11 +141,25 @@
                   <el-table-column label="上传时间" width="150">
                     <template #default="{ row }">{{ fmt(row.created_at) }}</template>
                   </el-table-column>
-                  <el-table-column label="操作" width="170" align="center">
+                  <el-table-column label="审批状态" width="100" align="center">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="approvalMeta(row.approval_status).type" effect="plain">
+                        {{ approvalMeta(row.approval_status).label }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="200" align="center">
                     <template #default="{ row }">
                       <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
                       <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
-                      <el-button v-if="canQuotationDelete" link type="danger" size="small" @click="removeQuotation(row)">删除</el-button>
+                      <el-button
+                        v-if="row.approval_status === 'rejected' || row.approval_status === 'canceled'"
+                        link
+                        type="warning"
+                        size="small"
+                        @click="resubmitBiz('quotation', row)"
+                      >重新提交</el-button>
+                      <el-button v-if="canQuotationDelete && row.approval_status !== 'pending'" link type="danger" size="small" @click="removeQuotation(row)">删除</el-button>
                     </template>
                   </el-table-column>
                   <template #empty><div class="empty-tip">暂无报价</div></template>
@@ -178,7 +192,7 @@
                 </el-table>
               </el-tab-pane>
 
-              <el-tab-pane :label="`行为记录 (${activities.length})`" name="activity">
+              <el-tab-pane :label="`行为记录 (${activityTotal})`" name="activity">
                 <div class="mb-12">
                   <el-button v-if="canActivityCreate" type="primary" size="small" @click="openActivity">新增行为</el-button>
                 </div>
@@ -191,6 +205,15 @@
                   <el-table-column prop="creator_name" label="记录人" width="100" />
                   <template #empty><div class="empty-tip">暂无行为记录</div></template>
                 </el-table>
+                <el-pagination
+                  v-if="activityTotal > activityPageSize"
+                  class="mt-12"
+                  layout="total, prev, pager, next"
+                  :total="activityTotal"
+                  :page-size="activityPageSize"
+                  :current-page="activityPage"
+                  @current-change="onActivityPageChange"
+                />
               </el-tab-pane>
 
               <el-tab-pane :label="`合同 (${contracts.length})`" name="contracts">
@@ -213,36 +236,48 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="120" align="center">
+                  <el-table-column label="审批状态" width="100" align="center">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="approvalMeta(row.approval_status).type" effect="plain">
+                        {{ approvalMeta(row.approval_status).label }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="200" align="center">
                     <template #default="{ row }">
                       <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
                       <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
+                      <el-button
+                        v-if="row.approval_status === 'rejected' || row.approval_status === 'canceled'"
+                        link
+                        type="warning"
+                        size="small"
+                        @click="resubmitBiz('contract', row)"
+                      >重新提交</el-button>
                     </template>
                   </el-table-column>
                   <template #empty><div class="empty-tip">暂无合同</div></template>
                 </el-table>
               </el-tab-pane>
 
-              <el-tab-pane label="阶段历史" name="history">
+              <el-tab-pane label="商机动态" name="history">
                 <el-timeline v-if="history.length">
                   <el-timeline-item
                     v-for="h in history"
                     :key="h.id"
-                    :timestamp="fmt(h.created_at)"
+                    :timestamp="fmt(h.time)"
                     placement="top"
-                    :type="h.action_type === 'rollback' ? 'warning' : 'success'"
+                    :type="timelineType(h.category)"
                   >
                     <div class="timeline-item__title">
-                      {{ actionLabel(h.action_type) }} → {{ h.to_stage_name }}
+                      <el-tag size="small" effect="plain" :type="timelineType(h.category)">{{ timelineCategory(h.category) }}</el-tag>
+                      {{ h.title }}
                     </div>
-                    <div class="timeline-item__meta">
-                      {{ h.from_stage_name || '—' }} → {{ h.to_stage_name || '—' }}
-                      <template v-if="h.changed_by_name"> · {{ h.changed_by_name }}</template>
-                      <template v-if="h.reason"> · {{ h.reason }}</template>
-                    </div>
+                    <div v-if="h.description" class="timeline-item__meta">{{ h.description }}</div>
+                    <div class="timeline-item__meta">{{ h.actor }}</div>
                   </el-timeline-item>
                 </el-timeline>
-                <div v-else class="empty-tip">暂无阶段变更记录</div>
+                <div v-else class="empty-tip">暂无动态</div>
               </el-tab-pane>
             </el-tabs>
           </div>
@@ -263,7 +298,9 @@
               <el-descriptions-item label="停滞天数">
                 <span :class="alertLevel ? `text-alert-${alertLevel}` : ''">{{ stagnantDays }} 天</span>
               </el-descriptions-item>
-              <el-descriptions-item label="当前阈值">7 / 14 / 21 天</el-descriptions-item>
+              <el-descriptions-item label="当前阈值">
+                {{ thresholds.level1 }} / {{ thresholds.level2 }} / {{ thresholds.level3 }} 天
+              </el-descriptions-item>
               <el-descriptions-item label="最后推进">{{ fmt(opp?.last_activity_at) }}</el-descriptions-item>
             </el-descriptions>
           </div>
@@ -287,7 +324,7 @@
       </div>
     </div>
 
-    <OpportunityAdvanceDialog v-model="advanceDialog" :opportunity-id="id" @advanced="reload" />
+    <OpportunityAdvanceDialog v-model="advanceDialog" :opportunity-id="id" @advanced="reload" @fill="onFillFromAdvance" />
     <ActivityDrawer
       v-model="activityDrawer"
       :default-customer-id="opp?.customer_id"
@@ -352,13 +389,30 @@
 
     <!-- 赢单关闭（M3-R4） -->
     <el-dialog v-model="winDialog" title="赢单关闭" width="480px">
-      <el-form label-width="100px">
+      <el-alert
+        v-if="winMissing.length"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="`当前阶段还有 ${winMissing.length} 项固定动作未完成`"
+      >
+        <div class="text-muted">{{ winMissing.map((m: any) => m.action_name).join('、') }}</div>
+        <div class="text-muted">补录合同可满足合同类动作，其余动作请先在详情页补齐。</div>
+      </el-alert>
+      <el-form label-width="100px" class="mt-12">
         <el-form-item label="合同编号"><el-input v-model="winForm.contract_no" maxlength="40" placeholder="留空自动生成" /></el-form-item>
         <el-form-item label="合同金额" required>
           <el-input-number v-model="winForm.amount" :min="0" :controls="false" style="width: 100%" />
         </el-form-item>
         <el-form-item label="签订日期">
           <el-date-picker v-model="winForm.signed_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+        </el-form-item>
+        <el-form-item v-if="winMissing.length && canRollback" label="强制赢单">
+          <el-switch v-model="winForce" />
+          <span class="text-muted form-tip">仅管理层可用，需填写原因并记录操作日志</span>
+        </el-form-item>
+        <el-form-item v-if="winForce" label="强制原因" required>
+          <el-input v-model="winForceReason" type="textarea" :rows="2" maxlength="200" show-word-limit />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -627,6 +681,10 @@ const quotations = ref<any[]>([])
 const contracts = ref<any[]>([])
 const competitors = ref<any[]>([])
 const activities = ref<any[]>([])
+const activityTotal = ref(0)
+const activityPage = ref(1)
+const activityPageSize = ref(20)
+const customFieldDefs = ref<any[]>([])
 const history = ref<any[]>([])
 const shares = ref<any[]>([])
 const owners = ref<Option[]>([])
@@ -644,6 +702,8 @@ const lossForm = reactive<any>({ loss_reason: '', loss_detail: '', competitor_na
 
 const winDialog = ref(false)
 const winForm = reactive<any>({ contract_no: '', amount: 0, signed_date: '' })
+const winForce = ref(false)
+const winForceReason = ref('')
 
 const seaDialog = ref(false)
 const seaReason = ref('')
@@ -706,30 +766,56 @@ const stagnantDays = computed(() => {
   return Math.max(0, Math.floor((Date.now() - new Date(base).getTime()) / DAY))
 })
 
-const alertLevel = computed(() => {
-  const d = stagnantDays.value
+/** 当前阶段预警阈值（阶段未配置时回退全局默认） */
+const thresholds = computed(() => {
   const stage = stages.value.find((s: any) => s.id === opp.value?.stage_config_id)
   const t = stage?.alert_thresholds || {}
-  const th = {
+  return {
     level1: Number(t.level1) || DEFAULT_THRESHOLDS.level1,
     level2: Number(t.level2) || DEFAULT_THRESHOLDS.level2,
     level3: Number(t.level3) || DEFAULT_THRESHOLDS.level3,
   }
+})
+
+const alertLevel = computed(() => {
+  const d = stagnantDays.value
+  const th = thresholds.value
   if (d >= th.level3) return 3
   if (d >= th.level2) return 2
   if (d >= th.level1) return 1
   return 0
 })
 
-const rollbackTargets = computed(() =>
-  stages.value.filter((s) => s.id !== opp.value?.stage_config_id && s.terminal_type !== 'loss')
-)
+/** 进度条只展示主路径，失效作为分支终态不画进推进流程 */
+const flowStages = computed<any[]>(() => (stageProgress.value?.stages || []).filter((s: any) => s.terminal_type !== 'loss'))
+
+/** 回退只能选当前阶段之前的阶段 */
+const rollbackTargets = computed(() => {
+  const current = opp.value?.stage_config_id
+  const currentSort = Number(opp.value?.stage?.sort_order)
+  return stages.value.filter(
+    (s) =>
+      s.id !== current &&
+      s.terminal_type !== 'loss' &&
+      s.is_terminal !== 1 &&
+      (!Number.isFinite(currentSort) || Number(s.sort_order) < currentSort)
+  )
+})
+
+/** 赢单时补录合同可满足合同类固定动作，其余未完成项仍需校验 */
+const winMissing = computed(() => {
+  const missing = opp.value?.fixed_actions?.missing || []
+  if (Number(winForm.amount) > 0) return missing.filter((m: any) => !String(m.field_key || '').startsWith('sys:contract'))
+  return missing
+})
 
 const customFieldEntries = computed(() => {
   const cf = opp.value?.custom_fields || {}
-  const out: Record<string, any> = {}
+  const out: { label: string; value: string }[] = []
   Object.entries(cf).forEach(([k, v]) => {
-    if (v !== null && v !== undefined && v !== '') out[k] = v
+    if (v === null || v === undefined || v === '') return
+    const def = customFieldDefs.value.find((d: any) => d.field_code === k)
+    out.push({ label: def?.field_name || k, value: formatCustomValue(v, def) })
   })
   return out
 })
@@ -738,9 +824,16 @@ function fmt(iso?: string) {
   return String(iso || '').slice(0, 16).replace('T', ' ') || '—'
 }
 
-function formatCustom(v: any) {
+/** 按自定义字段类型格式化展示值 */
+function formatCustomValue(v: any, def?: any) {
   if (Array.isArray(v)) return v.join('、')
   if (typeof v === 'boolean') return v ? '是' : '否'
+  const type = def?.field_type
+  if ((type === 'number' || type === 'amount') && v !== '' && !Number.isNaN(Number(v))) {
+    return Number(v).toLocaleString('zh-CN')
+  }
+  if (type === 'date') return String(v).slice(0, 10)
+  if (type === 'datetime') return fmt(String(v))
   return String(v)
 }
 
@@ -748,8 +841,88 @@ function statusTagType(s?: string) {
   return { 进行中: 'primary', 赢单: 'success', 失败: 'danger', 公海: 'info' }[s || ''] || 'info'
 }
 
-function actionLabel(t?: string) {
-  return { create: '创建', advance: '阶段推进', rollback: '阶段回退', close_win: '赢单关闭', close_loss: '失效关闭' }[t || ''] || t || '—'
+const APPROVAL_META: Record<string, { label: string; type: string }> = {
+  none: { label: '未提交', type: 'info' },
+  pending: { label: '审批中', type: 'warning' },
+  approved: { label: '已通过', type: 'success' },
+  rejected: { label: '已驳回', type: 'danger' },
+  canceled: { label: '已撤回', type: 'info' },
+}
+
+function approvalMeta(s?: string) {
+  return APPROVAL_META[s || 'none'] || APPROVAL_META.none
+}
+
+async function resubmitBiz(bizType: 'quotation' | 'contract', row: any) {
+  const res: any = await api.resubmitApproval(bizType, row.id)
+  if (res && res.submitted === false) {
+    ElMessage.info(res.message || '当前数据未命中审批条件，无需审批')
+  } else {
+    ElMessage.success('已重新提交审批')
+  }
+  await load()
+}
+
+const TIMELINE_META: Record<string, { label: string; type: string }> = {
+  stage: { label: '阶段', type: 'primary' },
+  activity: { label: '行为', type: 'success' },
+  proposal: { label: '方案', type: 'primary' },
+  quotation: { label: '报价', type: 'warning' },
+  contract: { label: '合同', type: 'success' },
+  competitor: { label: '竞对', type: 'info' },
+  share: { label: '协作', type: 'info' },
+  loss: { label: '失效', type: 'danger' },
+  stagnation: { label: '停滞', type: 'warning' },
+  approval: { label: '审批', type: 'primary' },
+}
+
+function timelineType(c?: string) {
+  return TIMELINE_META[c || '']?.type || 'info'
+}
+
+function timelineCategory(c?: string) {
+  return TIMELINE_META[c || '']?.label || '动态'
+}
+
+const FILL_TAB_MAP: Record<string, string> = {
+  'sys:activity': 'activity',
+  'sys:activity_presales': 'activity',
+  'sys:proposal_preliminary': 'assets',
+  'sys:proposal_formal': 'assets',
+  'sys:quotation': 'assets',
+  'sys:quotation_final': 'assets',
+  'sys:product_price': 'assets',
+  'sys:competitor': 'competitors',
+  'sys:contract': 'contracts',
+  'sys:contract_amount': 'contracts',
+  'sys:contract_signed_date': 'contracts',
+}
+
+/** 推进校验弹窗的“去填写/去处理” */
+function onFillFromAdvance(item: any) {
+  const key = String(item?.field_key || '')
+  if (key.startsWith('sys:')) {
+    tab.value = FILL_TAB_MAP[key] || 'actions'
+    return
+  }
+  router.push({ path: `/opportunities/${id.value}/edit`, query: { focus: key } })
+}
+
+async function loadActivities() {
+  const res: any = await api
+    .listActivities({ opportunity_id: id.value, page: activityPage.value, page_size: activityPageSize.value })
+    .catch(() => ({ list: [], total: 0 }))
+  activities.value = res.list || []
+  activityTotal.value = res.total || 0
+}
+
+function onActivityPageChange(p: number) {
+  activityPage.value = p
+  loadActivities()
+}
+
+async function loadCustomFields() {
+  customFieldDefs.value = await api.listCustomFields('opportunity').catch(() => [])
 }
 
 async function load() {
@@ -758,12 +931,11 @@ async function load() {
     const row = await api.getOpportunity(id.value)
     opp.value = row
     stageProgress.value = row.stage_progress
-    const [p, q, cp, c, a, h, s] = await Promise.all([
+    const [p, q, cp, c, h, s] = await Promise.all([
       api.listProposals(id.value).catch(() => []),
       api.listQuotations(id.value).catch(() => []),
       api.listCompetitors(id.value).catch(() => []),
       api.listOpportunityContracts(id.value).catch(() => []),
-      api.listActivities({ opportunity_id: id.value, page_size: 100 }).catch(() => ({ list: [] })),
       api.opportunityTimeline(id.value).catch(() => []),
       api.listShares(id.value).catch(() => []),
     ])
@@ -771,9 +943,9 @@ async function load() {
     quotations.value = q || []
     competitors.value = cp || []
     contracts.value = c || []
-    activities.value = (a as any).list || []
     history.value = h || []
     shares.value = s || []
+    await loadActivities()
   } finally {
     loading.value = false
   }
@@ -1121,6 +1293,8 @@ function onMore(cmd: string) {
     lossDialog.value = true
   } else if (cmd === 'win') {
     Object.assign(winForm, { contract_no: '', amount: opp.value?.amount || 0, signed_date: '' })
+    winForce.value = false
+    winForceReason.value = ''
     winDialog.value = true
   } else if (cmd === 'sea') {
     seaReason.value = ''
@@ -1182,10 +1356,20 @@ async function confirmWin() {
     ElMessage.warning('请填写合同金额')
     return
   }
+  if (winMissing.value.length && !winForce.value) {
+    ElMessage.warning(`还有未完成的固定动作：${winMissing.value.map((m: any) => m.action_name).join('、')}`)
+    return
+  }
+  if (winForce.value && !winForceReason.value.trim()) {
+    ElMessage.warning('强制赢单需填写原因')
+    return
+  }
   submitting.value = true
   try {
     await api.closeWin(id.value, {
-      reason: '合同签订完毕',
+      reason: winForce.value ? winForceReason.value.trim() : '合同签订完毕',
+      force: winForce.value || undefined,
+      force_reason: winForce.value ? winForceReason.value.trim() : undefined,
       contract: {
         contract_no: winForm.contract_no || undefined,
         amount: winForm.amount,
@@ -1247,12 +1431,22 @@ async function remove() {
 
 onMounted(async () => {
   owners.value = await loadOwnerOptions(userStore.hasPerm('user:view'), userStore.profile || undefined)
-  try {
-    stages.value = await api.stageOptions()
-  } catch (e) {
-    stages.value = []
-  }
+  await Promise.all([
+    api
+      .stageOptions()
+      .then((res) => {
+        stages.value = res
+      })
+      .catch(() => {
+        stages.value = []
+      }),
+    loadCustomFields(),
+  ])
   await load()
+  const queryTab = String(route.query.tab || '')
+  if (['actions', 'basic', 'assets', 'competitors', 'activity', 'contracts', 'history'].includes(queryTab)) {
+    tab.value = queryTab
+  }
   if (route.query.action === 'loss' && canUpdate.value) {
     onMore('loss')
   }

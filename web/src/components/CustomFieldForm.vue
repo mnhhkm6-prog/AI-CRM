@@ -2,7 +2,7 @@
   <template v-if="defs.length">
     <h3 class="section-card__title">{{ title }}</h3>
     <el-row :gutter="12">
-      <el-col v-for="def in defs" :key="def.field_code" :span="12">
+      <el-col v-for="def in defs" :key="def.field_code" :id="`field-${def.field_code}`" :span="12">
         <el-form-item :label="def.field_name" :required="def.is_required === 1">
           <!-- 布尔 -->
           <el-switch v-if="def.field_type === 'boolean'" v-model="model[def.field_code]" />

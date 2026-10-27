@@ -71,14 +71,21 @@ router.get('/stage-configs', requirePermission('stage_config:view'), (req, res) 
 
 /** 阶段下拉选项（商机推进/看板列头用，仅需商机查看权限，避免销售角色拿不到阶段列表） */
 router.get('/stage-options', requirePermission('opportunity:view'), (req, res) => {
+  const includeDisabled = req.query.include_disabled === 'true' || req.query.include_disabled === '1';
   ok(
     res,
-    stageEngine.listStages().map((s) => ({
+    stageEngine.listStages({ includeDisabled }).map((s) => ({
       id: s.id, code: s.code, name: s.name, sort_order: s.sort_order,
+      is_enabled: s.is_enabled,
       is_terminal: s.is_terminal, terminal_type: s.terminal_type,
       alert_thresholds: parseJson(s.alert_thresholds, null),
     }))
   );
+});
+
+/** 固定动作可关联字段清单（配置页下拉用） */
+router.get('/stage-configs/field-options', requirePermission('stage_config:view'), (req, res) => {
+  ok(res, stageEngine.actionFieldOptions());
 });
 
 router.post('/stage-configs', requirePermission('stage_config:manage'), (req, res) => {
@@ -264,7 +271,11 @@ router.post('/stage-configs/:id/action-rules', requirePermission('stage_config:m
   const body = bodyOf(req);
   const actionName = requireString(body, 'action_name', '动作名称');
   const fieldKey = requireString(body, 'field_key', '字段键');
-  const fieldType = requireString(body, 'field_type', '字段类型');
+  // 字段键必须来自内置字段 / 自定义字段 / 系统动作，类型由后端归一
+  const fieldType = stageEngine.assertActionFieldKey(fieldKey);
+  if (db.prepare('SELECT id FROM stage_action_rules WHERE stage_config_id = ? AND field_key = ?').get(stage.id, fieldKey)) {
+    throw conflict('该字段已配置固定动作，请直接编辑原规则');
+  }
   const id = newId();
   const t = now();
   db.prepare(
@@ -338,9 +349,19 @@ router.put('/stage-action-rules/:id', requirePermission('stage_config:manage'), 
   if (!rule) throw notFound('固定动作不存在');
   const body = bodyOf(req);
   const fields = {};
-  ['action_name', 'field_key', 'field_type', 'tip'].forEach((f) => {
+  ['action_name', 'tip'].forEach((f) => {
     if (body[f] !== undefined) fields[f] = body[f];
   });
+  if (body.field_key !== undefined && body.field_key !== rule.field_key) {
+    fields.field_key = body.field_key;
+    fields.field_type = stageEngine.assertActionFieldKey(body.field_key);
+    const dup = db
+      .prepare('SELECT id FROM stage_action_rules WHERE stage_config_id = ? AND field_key = ? AND id <> ?')
+      .get(rule.stage_config_id, body.field_key, rule.id);
+    if (dup) throw conflict('该字段已配置固定动作');
+  } else if (body.field_type !== undefined) {
+    fields.field_type = body.field_type;
+  }
   if (body.is_required !== undefined) fields.is_required = body.is_required ? 1 : 0;
   if (body.options !== undefined) fields.options = body.options ? JSON.stringify(body.options) : null;
   if (body.sort_order !== undefined) fields.sort_order = Number(body.sort_order) || 0;

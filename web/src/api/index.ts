@@ -129,7 +129,8 @@ export const recycleLead = (id: string, reason: string) => client.post(`/leads/$
  * ============================================================ */
 export const listOpportunities = (params?: PageQuery) => client.get<any, Paged<any>>('/opportunities', { params })
 /** 阶段下拉选项（商机推进 / 看板列头） */
-export const stageOptions = () => client.get<any, any[]>('/stage-options')
+export const stageOptions = (includeDisabled = false) =>
+  client.get<any, any[]>('/stage-options', { params: includeDisabled ? { include_disabled: 1 } : {} })
 export const getOpportunity = (id: string) => client.get<any, any>(`/opportunities/${id}`)
 export const createOpportunity = (body: any) => client.post<any, { id: string }>('/opportunities', body)
 export const updateOpportunity = (id: string, body: any) => client.put(`/opportunities/${id}`, body)
@@ -143,6 +144,9 @@ export const opportunityTimeline = (id: string) => client.get<any, any[]>(`/oppo
 export const opportunityStageProgress = (id: string) => client.get<any, any>(`/opportunities/${id}/stage-progress`)
 export const releaseOpportunityToSea = (id: string, reason: string) =>
   client.post(`/opportunities/${id}/release-to-sea`, { reason })
+/** 批量操作：transfer / release_to_sea / delete */
+export const batchOpportunities = (body: { action: string; ids: string[]; owner_id?: string; reason?: string }) =>
+  client.post<any, { action: string; success: string[]; failed: Array<{ id: string; reason: string }> }>('/opportunities/batch', body)
 
 /* ============================================================
  * M4 销售行为（P15/P16）
@@ -320,6 +324,8 @@ export const deleteStageConfig = (id: string) => client.delete(`/stage-configs/$
 export const toggleStageConfig = (id: string, enabled: boolean) => client.post(`/stage-configs/${id}/toggle`, { is_enabled: enabled })
 export const reorderStageConfigs = (ids: string[]) => client.post('/stage-configs/reorder', { ordered_ids: ids })
 export const listStageActionRules = (id: string) => client.get<any, any[]>(`/stage-configs/${id}/action-rules`)
+export const getStageFieldOptions = () =>
+  client.get<any, { builtin: any[]; custom: any[]; system: any[] }>('/stage-configs/field-options')
 export const createStageActionRule = (id: string, body: any) => client.post(`/stage-configs/${id}/action-rules`, body)
 export const updateStageActionRule = (ruleId: string, body: any) => client.put(`/stage-action-rules/${ruleId}`, body)
 export const deleteStageActionRule = (ruleId: string) => client.delete(`/stage-action-rules/${ruleId}`)

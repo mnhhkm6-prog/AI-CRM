@@ -79,7 +79,7 @@
             <el-table-column prop="action_name" label="动作名称" min-width="120" show-overflow-tooltip />
             <el-table-column prop="field_key" label="字段键" width="130" show-overflow-tooltip />
             <el-table-column label="类型" width="100" align="center">
-              <template #default="{ row }">{{ FIELD_TYPE_LABEL[row.field_type] || row.field_type }}</template>
+              <template #default="{ row }">{{ typeLabel(row) }}</template>
             </el-table-column>
             <el-table-column label="必填" width="70" align="center">
               <template #default="{ row }">
@@ -119,12 +119,31 @@
           <el-input v-model="ruleForm.action_name" maxlength="30" placeholder="如 填写客户预算" />
         </el-form-item>
         <el-form-item label="字段键" required>
-          <el-input v-model="ruleForm.field_key" maxlength="50" :disabled="!!ruleEditing" placeholder="自定义字段编码或核心字段名" />
+          <el-select
+            v-model="ruleForm.field_key"
+            :disabled="!!ruleEditing"
+            filterable
+            placeholder="选择内置字段 / 自定义字段 / 系统动作"
+            style="width: 100%"
+            @change="onFieldKeyChange"
+          >
+            <el-option-group label="内置字段">
+              <el-option v-for="f in fieldOptions.builtin" :key="f.field_key" :label="f.field_name" :value="f.field_key" />
+            </el-option-group>
+            <el-option-group v-if="fieldOptions.custom.length" label="自定义字段">
+              <el-option v-for="f in fieldOptions.custom" :key="f.field_key" :label="f.field_name" :value="f.field_key" />
+            </el-option-group>
+            <el-option-group label="系统自动校验（行为/方案/报价/合同等）">
+              <el-option v-for="f in fieldOptions.system" :key="f.field_key" :label="f.field_name" :value="f.field_key" />
+            </el-option-group>
+            <el-option v-if="missingFieldKey" :label="`${missingFieldKey}（未识别的字段）`" :value="missingFieldKey" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="字段类型" required>
-          <el-select v-model="ruleForm.field_type" style="width: 100%">
+        <el-form-item label="字段类型">
+          <el-select v-model="ruleForm.field_type" disabled style="width: 100%">
             <el-option v-for="(label, value) in FIELD_TYPE_LABEL" :key="value" :label="label" :value="value" />
           </el-select>
+          <div class="text-muted" style="font-size: 12px">由所选字段自动匹配</div>
         </el-form-item>
         <el-form-item label="是否必填">
           <el-switch v-model="ruleForm.is_required" />
@@ -179,6 +198,13 @@ const FIELD_TYPE_LABEL: Record<string, string> = {
   select: '单选下拉',
   multi_select: '多选下拉',
   boolean: '布尔开关',
+  sys: '系统自动校验',
+  relation: '关联记录',
+}
+
+function typeLabel(row: any) {
+  if (String(row?.field_key || '').startsWith('sys:')) return FIELD_TYPE_LABEL.sys
+  return FIELD_TYPE_LABEL[row?.field_type] || row?.field_type || '—'
 }
 
 const loading = ref(false)
@@ -187,6 +213,7 @@ const rulesLoading = ref(false)
 const stage = ref<any>(null)
 const rules = ref<any[]>([])
 const roles = ref<any[]>([])
+const fieldOptions = reactive<{ builtin: any[]; custom: any[]; system: any[] }>({ builtin: [], custom: [], system: [] })
 
 const ruleDialog = ref(false)
 const ruleEditing = ref<any>(null)
@@ -219,6 +246,20 @@ const canManage = computed(() => userStore.hasPerm('stage_config:manage'))
 const isSystem = computed(() => stage.value?.is_system === 1)
 const needOptions = computed(() => ruleForm.field_type === 'select' || ruleForm.field_type === 'multi_select')
 const stageId = computed(() => String(route.params.id || ''))
+
+const flatFieldOptions = computed(() => [...fieldOptions.builtin, ...fieldOptions.custom, ...fieldOptions.system])
+/** 编辑历史规则时，字段可能已停用/删除，仍展示原值避免误改 */
+const missingFieldKey = computed(() => {
+  if (!ruleEditing.value) return ''
+  const key = ruleEditing.value.field_key
+  return flatFieldOptions.value.some((f: any) => f.field_key === key) ? '' : key
+})
+
+function onFieldKeyChange(key: string) {
+  const hit = flatFieldOptions.value.find((f: any) => f.field_key === key)
+  if (hit) ruleForm.field_type = hit.field_type
+  if (ruleForm.field_type !== 'select' && ruleForm.field_type !== 'multi_select') ruleForm.options = []
+}
 
 async function load() {
   loading.value = true
@@ -267,6 +308,19 @@ async function loadRules() {
     rules.value = await api.listStageActionRules(stageId.value)
   } finally {
     rulesLoading.value = false
+  }
+}
+
+async function loadFieldOptions() {
+  try {
+    const res: any = await api.getStageFieldOptions()
+    fieldOptions.builtin = res.builtin || []
+    fieldOptions.custom = res.custom || []
+    fieldOptions.system = res.system || []
+  } catch (e) {
+    fieldOptions.builtin = []
+    fieldOptions.custom = []
+    fieldOptions.system = []
   }
 }
 
@@ -359,7 +413,7 @@ async function confirmRule() {
     return
   }
   if (!ruleForm.field_key.trim()) {
-    ElMessage.warning('请输入字段键')
+    ElMessage.warning('请选择字段键')
     return
   }
   if (!ruleForm.field_type) {
@@ -410,7 +464,7 @@ async function removeRule(row: any) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadRoles(), load()])
+  await Promise.all([loadRoles(), load(), loadFieldOptions()])
 })
 </script>
 

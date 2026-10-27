@@ -158,12 +158,13 @@
 | GET | `/opportunities/{id}` | 商机详情 M3-R7 | opportunity:view | → 含阶段进度、固定动作完成度、时间轴 |
 | PUT | `/opportunities/{id}` | 编辑 | opportunity:update | — |
 | DELETE | `/opportunities/{id}` | 删除 | opportunity:delete | — |
+| POST | `/opportunities/batch` | 批量操作（转移/转公海/删除） | opportunity:update / delete | body: `action*=transfer\|release_to_sea\|delete,ids*[],owner_id,reason` → `{action,success[],failed[{id,reason}]}`（单次 ≤200） |
 | GET | `/opportunities/{id}/advance-check` | 推进前固定动作校验摘要 M3-R2 | opportunity:view | → `{stage,completeness:"3/5",items:[{key,name,done}]}` |
 | POST | `/opportunities/{id}/advance` | 阶段推进（校验通过后）M3-R2 | opportunity:update | body: `to_stage_config_id,action_values{},force:bool,force_reason` |
-| POST | `/opportunities/{id}/rollback` | 阶段回退 M3-R3 | opportunity:update | body: `to_stage_config_id,reason*`（仅管理层） |
-| POST | `/opportunities/{id}/close-win` | 赢单关闭 M3-R4 | opportunity:update | body: `contract{}`（可同时建合同） |
+| POST | `/opportunities/{id}/rollback` | 阶段回退 M3-R3 | opportunity:update | body: `to_stage,reason*`（仅管理层，只能回退到更早阶段） |
+| POST | `/opportunities/{id}/close-win` | 赢单关闭 M3-R4 | opportunity:update | body: `contract{}`（可同时建合同）；固定动作未完成时返回 CODE 1001，管理层可传 `force,force_reason` 强制赢单 |
 | POST | `/opportunities/{id}/close-loss` | 失败关闭 → 生成失效申请 M3-R5/M8-R1 | opportunity:update | body: `loss_reason*,loss_detail*,competitor_name,is_recoverable,recovery_plan` |
-| GET | `/opportunities/{id}/timeline` | 阶段变更历史 | opportunity:view | → StageHistory 列表 |
+| GET | `/opportunities/{id}/timeline` | 商机动态（阶段历史 + 行为 + 方案/报价/合同（含审批状态）+ 竞对 + 协作 + 失效/停滞 + 审批） | opportunity:view | → `{id,time,category,title,description,actor}[]`，按时间倒序 |
 | GET | `/opportunities/{id}/stage-progress` | 阶段进度条数据 | opportunity:view | → 各阶段 + 当前 |
 
 ### M4 销售行为记录
@@ -283,8 +284,9 @@
 | DELETE | `/stage-configs/{id}` | 删除阶段（内置终态禁止） | stage_config:manage | → 有存量商机时要求先映射 |
 | POST | `/stage-configs/reorder` | 排序 M11-R1 | stage_config:manage | body: `ordered_ids[]` |
 | POST | `/stage-configs/{id}/toggle` | 启用/停用 | stage_config:manage | body: `is_enabled` |
+| GET | `/stage-configs/field-options` | 固定动作可选字段（内置/自定义/系统动作分组） | stage_config:view | → `{builtin[],custom[],system[]}` |
 | GET | `/stage-configs/{id}/action-rules` | 固定动作清单 M11-R3 | stage_config:view | — |
-| POST | `/stage-configs/{id}/action-rules` | 新增固定动作 M11-R3 | stage_config:manage | body: `action_name*,field_key*,field_type*,is_required,options[],sort_order` |
+| POST | `/stage-configs/{id}/action-rules` | 新增固定动作 M11-R3 | stage_config:manage | body: `action_name*,field_key*,field_type(自动匹配),is_required,options[],sort_order`；字段键须来自 field-options，同阶段重复返回 409 |
 | PUT | `/stage-action-rules/{id}` | 编辑固定动作 | stage_config:manage | — |
 | DELETE | `/stage-action-rules/{id}` | 删除固定动作 | stage_config:manage | — |
 | GET | `/stage-configs/versions` | 配置版本历史 M11-R6 | stage_config:view | — |

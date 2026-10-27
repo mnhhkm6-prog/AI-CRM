@@ -12,12 +12,12 @@
         <h3 class="section-card__title">商机信息</h3>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="商机名称" prop="name">
+            <el-form-item id="field-name" label="商机名称" prop="name">
               <el-input v-model="form.name" maxlength="80" placeholder="请输入商机名称" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="所属客户" prop="customer_id">
+            <el-form-item id="field-customer_id" label="所属客户" prop="customer_id">
               <el-select
                 v-model="form.customer_id"
                 filterable
@@ -33,24 +33,24 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="预计金额">
+            <el-form-item id="field-amount" label="预计金额">
               <el-input-number v-model="form.amount" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="预计成交日期">
+            <el-form-item id="field-expected_close_date" label="预计成交日期">
               <el-date-picker v-model="form.expected_close_date" type="date" value-format="YYYY-MM-DD" placeholder="选填" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="负责人">
+            <el-form-item id="field-owner_id" label="负责人">
               <el-select v-model="form.owner_id" clearable filterable placeholder="默认为本人" style="width: 100%">
                 <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item label="备注">
+            <el-form-item id="field-remark" label="备注">
               <el-input v-model="form.remark" type="textarea" :rows="3" maxlength="300" show-word-limit />
             </el-form-item>
           </el-col>
@@ -68,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import * as api from '@/api'
@@ -157,6 +157,18 @@ async function save() {
   }
 }
 
+/** 由推进弹窗“去填写”带入的字段定位 */
+async function focusRequestedField() {
+  const key = String(route.query.focus || '')
+  if (!key) return
+  await nextTick()
+  const el = document.getElementById(`field-${key}`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const input = el.querySelector('input, textarea') as HTMLElement | null
+  input?.focus?.()
+}
+
 onMounted(async () => {
   owners.value = await loadOwnerOptions(userStore.hasPerm('user:view'), userStore.profile || undefined)
   if (isEdit.value) {
@@ -174,6 +186,7 @@ onMounted(async () => {
     } finally {
       loading.value = false
     }
+    await focusRequestedField()
     return
   }
   // 由客户 360「新建商机」带入客户

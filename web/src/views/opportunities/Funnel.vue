@@ -69,7 +69,7 @@
       </div>
     </div>
 
-    <OpportunityAdvanceDialog v-model="advanceDialog" :opportunity-id="currentId" @advanced="load" />
+    <OpportunityAdvanceDialog v-model="advanceDialog" :opportunity-id="currentId" @advanced="load" @fill="onFill" />
   </div>
 </template>
 
@@ -199,6 +199,30 @@ function goDetail(row: any) {
 function openAdvance(row: any) {
   currentId.value = row.id
   advanceDialog.value = true
+}
+
+const FILL_TAB_MAP: Record<string, string> = {
+  'sys:activity': 'activity',
+  'sys:activity_presales': 'activity',
+  'sys:proposal_preliminary': 'assets',
+  'sys:proposal_formal': 'assets',
+  'sys:quotation': 'assets',
+  'sys:quotation_final': 'assets',
+  'sys:product_price': 'assets',
+  'sys:competitor': 'competitors',
+  'sys:contract': 'contracts',
+  'sys:contract_amount': 'contracts',
+  'sys:contract_signed_date': 'contracts',
+}
+
+function onFill(item: any) {
+  const key = String(item?.field_key || '')
+  advanceDialog.value = false
+  if (key.startsWith('sys:')) {
+    router.push({ path: `/opportunities/${currentId.value}`, query: { tab: FILL_TAB_MAP[key] || 'actions' } })
+    return
+  }
+  router.push({ path: `/opportunities/${currentId.value}/edit`, query: { focus: key } })
 }
 
 onMounted(async () => {

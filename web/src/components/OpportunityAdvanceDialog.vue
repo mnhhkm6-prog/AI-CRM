@@ -28,6 +28,13 @@
           <span :class="['check-item__icon', item.done ? 'is-done' : 'is-todo']">{{ item.done ? '✅' : '⬜' }}</span>
           <span class="check-item__name">{{ item.action_name }}</span>
           <span class="check-item__value text-muted">{{ displayValue(item) }}</span>
+          <el-button
+            v-if="!item.done"
+            link
+            type="primary"
+            size="small"
+            @click="goFill(item)"
+          >{{ String(item.field_key || '').startsWith('sys:') ? '去处理' : '去填写' }}</el-button>
         </div>
       </template>
       <div v-else class="empty-tip">未获取到校验信息</div>
@@ -58,7 +65,7 @@ import { useUserStore } from '@/stores/user'
  * 供商机列表、漏斗看板、商机详情复用
  */
 const props = defineProps<{ opportunityId: string }>()
-const emit = defineEmits<{ advanced: [] }>()
+const emit = defineEmits<{ advanced: []; fill: [item: any] }>()
 const visible = defineModel<boolean>({ required: true })
 
 const userStore = useUserStore()
@@ -87,6 +94,12 @@ function displayValue(item: any) {
   if (Array.isArray(item.value)) return item.value.join('、')
   if (typeof item.value === 'boolean') return item.value ? '已完成' : '未完成'
   return String(item.value)
+}
+
+/** 去补齐：由使用方决定跳到编辑页字段还是详情页页签 */
+function goFill(item: any) {
+  visible.value = false
+  emit('fill', item)
 }
 
 async function advance() {

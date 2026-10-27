@@ -9,9 +9,9 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { ok, created, getPaging, paged, buildSort, requireString, optional, bodyOf } = require('../utils/http');
-const { notFound, badRequest, conflict, CODE } = require('../utils/errors');
+const { notFound, badRequest, conflict, forbidden, CODE } = require('../utils/errors');
 const { newId, now } = require('../utils/ids');
-const { requirePermission } = require('../middleware/permission');
+const { requirePermission, requireAnyPermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
 const customField = require('../services/customField');
 const { logOperation, diffFields } = require('../services/operationLog');
@@ -275,6 +275,57 @@ router.post('/opportunities/:id/release-to-sea', requirePermission('opportunity:
   });
   logOperation(req, { action: 'RELEASE_OPPORTUNITY_TO_SEA', targetType: 'Opportunity', targetId: row.id, detail: { reason } });
   ok(res, record);
+});
+
+/** 批量操作：转移负责人 / 转公海 / 删除（单次最多 200 条，逐条校验数据权限） */
+router.post('/opportunities/batch', requireAnyPermission(['opportunity:update', 'opportunity:delete']), (req, res) => {
+  const body = bodyOf(req);
+  const action = requireString(body, 'action', '批量操作类型');
+  if (!['transfer', 'release_to_sea', 'delete'].includes(action)) throw badRequest('不支持的批量操作');
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
+  if (!ids.length) throw badRequest('ids 为必填数组');
+  if (ids.length > 200) throw badRequest('单次最多处理 200 个商机');
+
+  const needPerm = action === 'delete' ? 'opportunity:delete' : 'opportunity:update';
+  if (!req.user.isAdmin && !req.user.permissions.has(needPerm)) throw forbidden('无权执行该批量操作');
+
+  let ownerId = null;
+  let reason = null;
+  if (action === 'transfer') {
+    ownerId = requireString(body, 'owner_id', '负责人');
+    const owner = db.prepare("SELECT id FROM users WHERE id = ? AND status = 'enabled' AND is_deleted = 0").get(ownerId);
+    if (!owner) throw badRequest('负责人不存在或已停用');
+  }
+  if (action === 'release_to_sea') reason = requireString(body, 'reason', '转公海原因');
+
+  const success = [];
+  const failed = [];
+  ids.forEach((id) => {
+    const row = dataScope.findScoped('opportunity', 'opportunities', id, req.user);
+    if (!row) {
+      failed.push({ id, reason: '商机不存在或无权操作' });
+      return;
+    }
+    try {
+      if (action === 'transfer') {
+        db.prepare('UPDATE opportunities SET owner_id = ?, updated_at = ? WHERE id = ?').run(ownerId, now(), id);
+      } else if (action === 'release_to_sea') {
+        seaService.moveToSea({ entityType: 'opportunity', entityId: id, reason, source: 'manual', user: req.user });
+      } else {
+        db.prepare('UPDATE opportunities SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), id);
+      }
+      success.push(id);
+    } catch (e) {
+      failed.push({ id, reason: e.message });
+    }
+  });
+  logOperation(req, {
+    action: `BATCH_${action.toUpperCase()}`,
+    targetType: 'Opportunity',
+    targetId: null,
+    detail: { action, success: success.length, failed: failed.length },
+  });
+  ok(res, { action, success, failed });
 });
 
 module.exports = router;

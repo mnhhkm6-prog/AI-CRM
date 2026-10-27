@@ -160,6 +160,65 @@ function quotationCheck(opp, type) {
 /** 内置商机字段（可直接作为固定动作字段） */
 const BUILTIN_FIELDS = ['name', 'customer_id', 'amount', 'expected_close_date', 'owner_id', 'remark', 'stage_config_id'];
 
+/** 内置字段元信息：用于配置页下拉与类型自动匹配 */
+const BUILTIN_FIELD_META = {
+  name: { label: '商机名称', type: 'text' },
+  customer_id: { label: '所属客户', type: 'text' },
+  amount: { label: '商机金额', type: 'amount' },
+  expected_close_date: { label: '预计成交日期', type: 'date' },
+  owner_id: { label: '负责人', type: 'text' },
+  remark: { label: '备注', type: 'textarea' },
+  stage_config_id: { label: '当前阶段', type: 'text' },
+};
+
+/** 系统派生动作的可读名称 */
+const SYS_FIELD_LABELS = {
+  'sys:activity': '行为记录（至少 1 条）',
+  'sys:activity_presales': '售前/支撑行为记录',
+  'sys:proposal_preliminary': '初步方案',
+  'sys:proposal_formal': '正式方案',
+  'sys:quotation': '报价单',
+  'sys:quotation_final': '最终报价',
+  'sys:product_price': '产品价格记录',
+  'sys:competitor': '竞争对手',
+  'sys:contract': '合同文件',
+  'sys:contract_amount': '合同金额',
+  'sys:contract_signed_date': '合同签订日期',
+  'sys:customer_contact': '客户联系人',
+};
+
+/** 固定动作可关联的字段清单（分组给配置页下拉用） */
+function actionFieldOptions() {
+  const custom = db
+    .prepare(
+      "SELECT field_code, field_name, field_type FROM custom_field_definitions WHERE entity_type = 'opportunity' AND is_enabled = 1 ORDER BY sort_order, field_code"
+    )
+    .all();
+  return {
+    builtin: Object.entries(BUILTIN_FIELD_META).map(([field_key, m]) => ({
+      field_key, field_name: m.label, field_type: m.type,
+    })),
+    custom: custom.map((c) => ({ field_key: c.field_code, field_name: c.field_name, field_type: c.field_type })),
+    system: Object.keys(SYS_CHECKS).map((k) => ({
+      field_key: k, field_name: SYS_FIELD_LABELS[k] || k, field_type: 'sys',
+    })),
+  };
+}
+
+/** 校验字段键是否存在，并返回应使用的字段类型 */
+function assertActionFieldKey(fieldKey) {
+  if (fieldKey.startsWith('sys:')) {
+    if (!SYS_CHECKS[fieldKey]) throw badRequest(`系统动作「${fieldKey}」不存在`);
+    return 'sys';
+  }
+  if (BUILTIN_FIELD_META[fieldKey]) return BUILTIN_FIELD_META[fieldKey].type;
+  const def = db
+    .prepare("SELECT field_type FROM custom_field_definitions WHERE entity_type = 'opportunity' AND field_code = ?")
+    .get(fieldKey);
+  if (!def) throw badRequest(`字段「${fieldKey}」不存在，请从下拉列表选择`);
+  return def.field_type;
+}
+
 /** 求单个规则当前是否已完成 */
 function evaluateRule(opp, rule) {
   let done = false;
@@ -358,6 +417,10 @@ function rollback(opportunityId, payload, req) {
     throw badRequest('不可回退至失效终态');
   }
   if (target.is_enabled !== 1) throw badRequest('目标阶段已停用');
+  // 回退只能往回走，避免借回退跳阶段或直接跳到赢单终态
+  if (!currentStage || Number(target.sort_order) >= Number(currentStage.sort_order)) {
+    throw badRequest('阶段回退只能退至当前阶段之前的阶段');
+  }
 
   applyStageChange(opp, currentStage, target, 'rollback', payload.reason, req, {});
   return { opportunity: getOpportunityOr404(opportunityId) };
@@ -426,6 +489,29 @@ function closeWin(opportunityId, payload, req) {
   if (!winStage) throw notFound('内置终态 WIN 未初始化');
 
   const c = payload.contract || {};
+
+  // 固定动作校验：避免跳过当前阶段要求直接赢单
+  const evaluation = evaluate(opp, currentStage);
+  let missing = evaluation.missing;
+  // 赢单可同时补录合同，本次补录视为满足合同类固定动作
+  if (c.contract_no || c.amount || c.file_storage_id) {
+    missing = missing.filter((m) => !String(m.field_key || '').startsWith('sys:contract'));
+  }
+  if (missing.length) {
+    if (!payload.force) {
+      const names = missing.map((m) => m.action_name).join('、');
+      throw conflict(
+        `存在未完成的固定动作（${names}），无法赢单`,
+        CODE.FIXED_ACTION,
+        missing.map((m) => ({ action_name: m.action_name, field_key: m.field_key }))
+      );
+    }
+    // 强制赢单属高风险操作：仅管理层/系统管理员可用，且必须填写原因
+    const canForce = req.user && (req.user.isAdmin || req.user.permissions.has('opportunity:rollback'));
+    if (!canForce) throw forbidden('强制赢单需管理层或系统管理员权限');
+    if (!payload.force_reason) throw badRequest('强制赢单必须填写 force_reason');
+  }
+
   const existsContract =
     count(
       "SELECT COUNT(*) c FROM contracts WHERE opportunity_id = ? AND is_deleted = 0 AND COALESCE(approval_status, 'none') IN ('none','approved')",
@@ -462,7 +548,10 @@ function closeWin(opportunityId, payload, req) {
     logOperation(req, { action: 'CREATE_CONTRACT', targetType: 'Contract', targetId: contractId, detail: { opportunity_id: opp.id, from: 'close_win' } });
   }
 
-  applyStageChange(opp, currentStage, winStage, 'close_win', payload.reason || '合同签订完毕', req, {});
+  applyStageChange(opp, currentStage, winStage, 'close_win', payload.reason || '合同签订完毕', req, {
+    forced: !!payload.force && missing.length > 0,
+    missing,
+  });
   logOperation(req, { action: 'CLOSE_WIN_OPPORTUNITY', targetType: 'Opportunity', targetId: opp.id, detail: { contract_id: contractId } });
   return { opportunity: getOpportunityOr404(opportunityId), contract_id: contractId };
 }
@@ -549,15 +638,216 @@ function stageProgress(opportunityId) {
   };
 }
 
+const APPROVAL_TEXT = {
+  none: '未提交审批',
+  pending: '审批中',
+  approved: '审批通过',
+  rejected: '审批驳回',
+  canceled: '审批撤回',
+};
+
+const STAGE_ACTION_LABEL = {
+  create: '创建商机',
+  advance: '推进阶段',
+  rollback: '回退阶段',
+  close_win: '赢单关闭',
+  close_loss: '失效关闭',
+};
+
+const moneyText = (v) => `¥${Number(v || 0).toLocaleString('zh-CN')}`;
+
+/** 商机动态：合并阶段变更、行为、方案报价合同、竞对、协作、审批与失效申请 */
 function timeline(opportunityId) {
   getOpportunityOr404(opportunityId);
-  return db
-    .prepare(
-      `SELECT h.*, u.name AS changed_by_name FROM stage_history h
-       LEFT JOIN users u ON u.id = h.changed_by
-       WHERE h.opportunity_id = ? ORDER BY h.created_at`
-    )
-    .all(opportunityId);
+  const events = [];
+  const add = (e) => {
+    if (e && e.time) events.push(e);
+  };
+
+  db.prepare(
+    `SELECT h.*, u.name AS actor FROM stage_history h
+     LEFT JOIN users u ON u.id = h.changed_by
+     WHERE h.opportunity_id = ?`
+  ).all(opportunityId).forEach((h) => {
+    const label = STAGE_ACTION_LABEL[h.action_type] || '阶段变更';
+    add({
+      id: `stage-${h.id}`,
+      time: h.created_at,
+      category: 'stage',
+      title: `${label} · ${h.to_stage_name || '—'}`,
+      description: [
+        h.from_stage_name ? `${h.from_stage_name} → ${h.to_stage_name}` : '',
+        h.reason,
+      ].filter(Boolean).join(' · '),
+      actor: h.actor || '系统',
+    });
+  });
+
+  db.prepare(
+    `SELECT a.*, u.name AS actor FROM activities a
+     LEFT JOIN users u ON u.id = a.created_by
+     WHERE a.opportunity_id = ? AND a.is_deleted = 0`
+  ).all(opportunityId).forEach((a) => {
+    add({
+      id: `activity-${a.id}`,
+      time: a.activity_time || a.created_at,
+      category: 'activity',
+      title: `行为记录 · ${a.activity_type || '跟进'}`,
+      description: a.content || '',
+      actor: a.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT p.*, u.name AS actor FROM proposals p
+     LEFT JOIN users u ON u.id = p.uploaded_by
+     WHERE p.opportunity_id = ? AND p.is_deleted = 0`
+  ).all(opportunityId).forEach((p) => {
+    add({
+      id: `proposal-${p.id}`,
+      time: p.created_at,
+      category: 'proposal',
+      title: `上传${p.proposal_type === 'formal' ? '正式' : '初步'}方案${p.version ? ` · ${p.version}` : ''}`,
+      description: p.file_name || '',
+      actor: p.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT q.*, u.name AS actor FROM quotations q
+     LEFT JOIN users u ON u.id = q.uploaded_by
+     WHERE q.opportunity_id = ? AND q.is_deleted = 0`
+  ).all(opportunityId).forEach((q) => {
+    add({
+      id: `quotation-${q.id}`,
+      time: q.created_at,
+      category: 'quotation',
+      title: `新增${q.quotation_type === 'final' ? '最终' : '初步'}报价 · ${moneyText(q.amount)}`,
+      description: [q.file_name, APPROVAL_TEXT[q.approval_status] || ''].filter(Boolean).join(' · '),
+      actor: q.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT c.*, u.name AS actor FROM contracts c
+     LEFT JOIN users u ON u.id = c.created_by
+     WHERE c.opportunity_id = ? AND c.is_deleted = 0`
+  ).all(opportunityId).forEach((c) => {
+    add({
+      id: `contract-${c.id}`,
+      time: c.created_at,
+      category: 'contract',
+      title: `新增合同 · ${c.contract_no}`,
+      description: [
+        moneyText(c.amount),
+        c.signed_date ? `签订 ${c.signed_date}` : '',
+        APPROVAL_TEXT[c.approval_status] || '',
+      ].filter(Boolean).join(' · '),
+      actor: c.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT cm.*, u.name AS actor FROM competitors cm
+     LEFT JOIN users u ON u.id = cm.created_by
+     WHERE cm.opportunity_id = ? AND cm.is_deleted = 0`
+  ).all(opportunityId).forEach((cm) => {
+    add({
+      id: `competitor-${cm.id}`,
+      time: cm.created_at,
+      category: 'competitor',
+      title: `添加竞争对手 · ${cm.name}`,
+      description: cm.strengths || '',
+      actor: cm.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT s.*, u.name AS target_name, su.name AS actor FROM opportunity_shares s
+     LEFT JOIN users u ON u.id = s.shared_to
+     LEFT JOIN users su ON su.id = s.shared_by
+     WHERE s.opportunity_id = ? AND s.is_revoked = 0`
+  ).all(opportunityId).forEach((s) => {
+    add({
+      id: `share-${s.id}`,
+      time: s.created_at,
+      category: 'share',
+      title: `共享协作 · ${s.target_name || '—'}`,
+      description: '已共享商机查看/协作权限',
+      actor: s.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT l.*, u.name AS actor FROM loss_records l
+     LEFT JOIN users u ON u.id = l.submitted_by
+     WHERE l.opportunity_id = ?`
+  ).all(opportunityId).forEach((l) => {
+    if (!l.approved_at) return;
+    add({
+      id: `loss-${l.id}`,
+      time: l.approved_at,
+      category: 'loss',
+      title: `失效申请${l.approval_status === 'approved' ? '通过' : l.approval_status === 'rejected' ? '驳回' : '处理中'}`,
+      description: l.approve_comment || l.loss_reason || '',
+      actor: l.actor || '—',
+    });
+  });
+
+  db.prepare(
+    `SELECT se.*, u.name AS actor FROM stagnation_explains se
+     LEFT JOIN users u ON u.id = se.submitted_by
+     WHERE se.opportunity_id = ?`
+  ).all(opportunityId).forEach((se) => {
+    add({
+      id: `stagnation-${se.id}`,
+      time: se.created_at,
+      category: 'stagnation',
+      title: '提交停滞延期申请',
+      description: [se.reason, se.expected_date ? `预计 ${se.expected_date}` : ''].filter(Boolean).join(' · '),
+      actor: se.actor || '—',
+    });
+    if (se.approved_at) {
+      add({
+        id: `stagnation-done-${se.id}`,
+        time: se.approved_at,
+        category: 'stagnation',
+        title: `停滞延期${se.status === 'approved' ? '通过' : '驳回'}`,
+        description: se.approve_comment || '',
+        actor: se.actor || '—',
+      });
+    }
+  });
+
+  const instances = db.prepare(
+    `SELECT ai.*, u.name AS actor FROM approval_instances ai
+     LEFT JOIN users u ON u.id = ai.submitted_by
+     WHERE (ai.biz_type = 'quotation' AND ai.biz_id IN (SELECT id FROM quotations WHERE opportunity_id = ?))
+        OR (ai.biz_type = 'contract' AND ai.biz_id IN (SELECT id FROM contracts WHERE opportunity_id = ?))`
+  ).all(opportunityId, opportunityId);
+  instances.forEach((ai) => {
+    const bizLabel = ai.biz_type === 'quotation' ? '报价' : '合同';
+    add({
+      id: `approval-submit-${ai.id}`,
+      time: ai.submitted_at || ai.created_at,
+      category: 'approval',
+      title: `提交${bizLabel}审批 · ${ai.flow_name || '审批流'}`,
+      description: ai.status === 'pending' ? `当前节点：${ai.current_node_name || '—'}` : '',
+      actor: ai.actor || '—',
+    });
+    if (ai.completed_at) {
+      add({
+        id: `approval-done-${ai.id}`,
+        time: ai.completed_at,
+        category: 'approval',
+        title: `${bizLabel}审批${ai.status === 'approved' ? '通过' : ai.status === 'rejected' ? '驳回' : '结束'}`,
+        description: ai.flow_name || '',
+        actor: '—',
+      });
+    }
+  });
+
+  return events.sort((a, b) => String(b.time).localeCompare(String(a.time)));
 }
 
 module.exports = {
@@ -565,4 +855,5 @@ module.exports = {
   firstStage, nextStageOf, isTerminal, rulesOf, evaluate, evaluateRule, checkAdvance,
   advance, rollback, closeWin, closeLoss, approveLoss, rejectLoss,
   statusOfStage, syncStatus, touchOpportunity, stageProgress, timeline, getOpportunityOr404, count,
+  actionFieldOptions, assertActionFieldKey,
 };

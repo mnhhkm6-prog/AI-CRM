@@ -25,8 +25,8 @@
 
       <div class="filter-bar">
         <el-input v-model="query.keyword" placeholder="商机名称" clearable style="width: 200px" @keyup.enter="reload" @clear="reload" />
-        <el-select v-model="query.stage_config_id" placeholder="当前阶段" clearable style="width: 170px" @change="reload">
-          <el-option v-for="s in stages" :key="s.id" :label="s.name" :value="s.id" />
+        <el-select v-model="query.stage_config_id" placeholder="当前阶段" clearable style="width: 190px" @change="reload">
+          <el-option v-for="s in stages" :key="s.id" :label="stageLabel(s)" :value="s.id" />
         </el-select>
         <el-select v-model="query.status" placeholder="商机状态" clearable style="width: 130px" @change="reload">
           <el-option v-for="o in OPPORTUNITY_STATUS" :key="o.value" :label="o.label" :value="o.value" />
@@ -48,7 +48,16 @@
         <el-button @click="load">刷新</el-button>
       </div>
 
-      <el-table v-loading="loading" :data="items" size="small" style="width: 100%">
+      <div v-if="selectedIds.length" class="batch-bar">
+        <span class="batch-bar__count">已选 {{ selectedIds.length }} 项</span>
+        <el-button v-if="canUpdate" size="small" @click="transferDialog = true">批量转移</el-button>
+        <el-button v-if="canUpdate" size="small" @click="batchRelease">批量转公海</el-button>
+        <el-button v-if="canDelete" size="small" type="danger" @click="batchDelete">批量删除</el-button>
+        <el-button size="small" link @click="clearSelection">取消选择</el-button>
+      </div>
+
+      <el-table ref="tableRef" v-loading="loading" :data="items" size="small" style="width: 100%" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="42" />
         <el-table-column
           v-for="col in tableColumns"
           :key="col.key"
@@ -121,7 +130,18 @@
       />
     </div>
 
-    <OpportunityAdvanceDialog v-model="advanceDialog" :opportunity-id="currentId" @advanced="load" />
+    <OpportunityAdvanceDialog v-model="advanceDialog" :opportunity-id="currentId" @advanced="load" @fill="onFill" />
+
+    <el-dialog v-model="transferDialog" title="批量转移负责人" width="420px">
+      <el-select v-model="batchOwnerId" filterable placeholder="选择新负责人" style="width: 100%">
+        <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
+      </el-select>
+      <p class="text-muted" style="margin: 8px 0 0">将选中的 {{ selectedIds.length }} 个商机转移给该负责人</p>
+      <template #footer>
+        <el-button @click="transferDialog = false">取消</el-button>
+        <el-button type="primary" :loading="batchSubmitting" @click="batchTransfer">确认转移</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -187,6 +207,11 @@ const stages = ref<any[]>([])
 const dateRange = ref<[string, string] | null>(null)
 const advanceDialog = ref(false)
 const currentId = ref('')
+const tableRef = ref<any>(null)
+const selectedIds = ref<string[]>([])
+const transferDialog = ref(false)
+const batchOwnerId = ref('')
+const batchSubmitting = ref(false)
 
 const query = reactive({
   keyword: '', stage_config_id: '', status: '', owner_id: '',
@@ -195,10 +220,14 @@ const query = reactive({
 
 /** 视图默认筛选可配置项（仅后端支持的查询参数） */
 const filterDefs = computed<ViewFilterDef[]>(() => [
-  { key: 'stage_config_id', label: '当前阶段', type: 'select', options: stages.value.map((s: any) => ({ label: s.name, value: s.id })) },
+  { key: 'stage_config_id', label: '当前阶段', type: 'select', options: stages.value.map((s: any) => ({ label: stageLabel(s), value: s.id })) },
   { key: 'status', label: '商机状态', type: 'select', options: OPPORTUNITY_STATUS },
   { key: 'owner_id', label: '负责人', type: 'select', options: owners.value },
 ])
+
+function stageLabel(s: any) {
+  return s.is_enabled === 0 ? `${s.name}（已停用）` : s.name
+}
 
 /** 当前视图可见列（按视图配置顺序） */
 const visibleKeys = ref<string[]>(COLUMN_DEFS.map((c) => c.key))
@@ -309,6 +338,77 @@ function openAdvance(row: any) {
   advanceDialog.value = true
 }
 
+function onSelectionChange(rows: any[]) {
+  selectedIds.value = rows.map((r) => r.id)
+}
+
+function clearSelection() {
+  selectedIds.value = []
+  tableRef.value?.clearSelection?.()
+}
+
+/** 推进校验缺失项：自定义/内置字段跳编辑页，系统动作跳详情对应页签 */
+function onFill(item: any) {
+  const key = String(item?.field_key || '')
+  advanceDialog.value = false
+  if (key.startsWith('sys:')) {
+    const tabMap: Record<string, string> = {
+      'sys:activity': 'activity',
+      'sys:activity_presales': 'activity',
+      'sys:proposal_preliminary': 'proposal',
+      'sys:proposal_formal': 'proposal',
+      'sys:quotation': 'proposal',
+      'sys:quotation_final': 'proposal',
+      'sys:product_price': 'proposal',
+      'sys:competitor': 'competitor',
+      'sys:contract': 'contract',
+      'sys:contract_amount': 'contract',
+      'sys:contract_signed_date': 'contract',
+    }
+    router.push({ path: `/opportunities/${currentId.value}`, query: { tab: tabMap[key] || 'actions' } })
+    return
+  }
+  router.push({ path: `/opportunities/${currentId.value}/edit`, query: { focus: key } })
+}
+
+async function runBatch(body: { action: string; owner_id?: string; reason?: string }) {
+  batchSubmitting.value = true
+  try {
+    const res = await api.batchOpportunities({ ...body, ids: selectedIds.value })
+    if (res.failed?.length) {
+      ElMessage.warning(`成功 ${res.success.length} 个，失败 ${res.failed.length} 个：${res.failed[0].reason}`)
+    } else {
+      ElMessage.success(`已处理 ${res.success.length} 个商机`)
+    }
+    transferDialog.value = false
+    clearSelection()
+    await load()
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+async function batchTransfer() {
+  if (!batchOwnerId.value) {
+    ElMessage.warning('请选择新负责人')
+    return
+  }
+  await runBatch({ action: 'transfer', owner_id: batchOwnerId.value })
+}
+
+async function batchRelease() {
+  const { value } = await ElMessageBox.prompt('请输入转公海原因', '批量转公海', {
+    inputPlaceholder: '如 长时间未跟进',
+    inputValidator: (v) => (v && v.trim() ? true : '原因不能为空'),
+  })
+  await runBatch({ action: 'release_to_sea', reason: value.trim() })
+}
+
+async function batchDelete() {
+  await ElMessageBox.confirm(`确认删除选中的 ${selectedIds.value.length} 个商机？`, '批量删除', { type: 'warning' })
+  await runBatch({ action: 'delete' })
+}
+
 async function onCommand(cmd: string, row: any) {
   if (cmd === 'edit') {
     router.push(`/opportunities/${row.id}/edit`)
@@ -325,7 +425,7 @@ async function onCommand(cmd: string, row: any) {
 onMounted(async () => {
   owners.value = await loadOwnerOptions(userStore.hasPerm('user:view'), userStore.profile || undefined)
   try {
-    stages.value = await api.stageOptions()
+    stages.value = await api.stageOptions(true)
   } catch (e) {
     stages.value = []
   }
@@ -353,5 +453,21 @@ onMounted(async () => {
 
 .alert-dot--3 {
   background: var(--crm-alert-3);
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--crm-border);
+  border-radius: 6px;
+  background: var(--crm-bg-soft, #f7f8fa);
+}
+
+.batch-bar__count {
+  font-size: 13px;
+  color: var(--crm-text-secondary, #606266);
 }
 </style>
