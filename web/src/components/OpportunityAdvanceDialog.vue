@@ -43,22 +43,14 @@
     <template #footer>
       <el-button @click="visible = false">关闭</el-button>
       <el-button v-if="check?.pass" type="primary" :loading="submitting" @click="advance">确认推进</el-button>
-      <template v-else-if="canForce && check?.next_stage">
-        <el-button v-if="!forcing" @click="forcing = true">强制推进</el-button>
-        <template v-else>
-          <el-input v-model="forceReason" size="small" placeholder="请填写强制推进原因（必填）" style="width: 220px" />
-          <el-button type="danger" :loading="submitting" @click="forceAdvance">确认强制推进</el-button>
-        </template>
-      </template>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as api from '@/api'
-import { useUserStore } from '@/stores/user'
 
 /**
  * 阶段推进校验弹窗（M3-R2 / UI 6.1）
@@ -68,19 +60,12 @@ const props = defineProps<{ opportunityId: string }>()
 const emit = defineEmits<{ advanced: []; fill: [item: any] }>()
 const visible = defineModel<boolean>({ required: true })
 
-const userStore = useUserStore()
 const loading = ref(false)
 const submitting = ref(false)
-const forcing = ref(false)
-const forceReason = ref('')
 const check = ref<any>(null)
-
-const canForce = computed(() => userStore.isAdmin || userStore.hasPerm('opportunity:rollback'))
 
 watch(visible, async (open) => {
   if (!open) return
-  forcing.value = false
-  forceReason.value = ''
   loading.value = true
   try {
     check.value = await api.advanceCheck(props.opportunityId)
@@ -107,22 +92,6 @@ async function advance() {
   try {
     await api.advanceOpportunity(props.opportunityId, {})
     ElMessage.success('阶段已推进')
-    visible.value = false
-    emit('advanced')
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function forceAdvance() {
-  if (!forceReason.value.trim()) {
-    ElMessage.warning('请填写强制推进原因')
-    return
-  }
-  submitting.value = true
-  try {
-    await api.advanceOpportunity(props.opportunityId, { force: true, force_reason: forceReason.value.trim() })
-    ElMessage.success('已强制推进')
     visible.value = false
     emit('advanced')
   } finally {

@@ -291,10 +291,11 @@ function evaluate(opp, stage) {
     });
   }
 
+  // 固定动作只展示必填项：选填项不影响推进，也不计入完成度
   const required = items.filter((i) => i.is_required === 1);
   const missing = required.filter((i) => !i.done);
   return {
-    items,
+    items: required,
     missing,
     pass: missing.length === 0,
     completeness: `${required.length - missing.length}/${required.length}`,
@@ -678,9 +679,17 @@ const STAGE_ACTION_LABEL = {
   close_loss: '失效关闭',
 };
 
+/** 公海来源展示文案（sea_pool_records.source） */
+const SEA_SOURCE_LABEL = {
+  manual: '手工释放',
+  auto_recycle: '系统自动回收',
+  auto_stagnation: '停滞自动回落',
+  assigned: '主管分配',
+};
+
 const moneyText = (v) => `¥${Number(v || 0).toLocaleString('zh-CN')}`;
 
-/** 商机动态：合并阶段变更、行为、方案报价合同、竞对、协作、审批与失效申请 */
+/** 商机动态：合并阶段变更、行为、方案报价合同、竞对、协作、公海流转、审批与失效申请 */
 function timeline(opportunityId) {
   getOpportunityOr404(opportunityId);
   const events = [];
@@ -816,6 +825,38 @@ function timeline(opportunityId) {
       description: l.approve_comment || l.loss_reason || '',
       actor: l.actor || '—',
     });
+  });
+
+  db.prepare(
+    `SELECT s.*, cu.name AS actor, pu.name AS prev_owner_name, wu.name AS claim_name
+     FROM sea_pool_records s
+     LEFT JOIN users cu ON cu.id = s.created_by
+     LEFT JOIN users pu ON pu.id = s.previous_owner
+     LEFT JOIN users wu ON wu.id = s.claimed_by
+     WHERE s.entity_type = 'opportunity' AND s.entity_id = ?`
+  ).all(opportunityId).forEach((s) => {
+    const sourceLabel = SEA_SOURCE_LABEL[s.source] || '转入公海';
+    add({
+      id: `sea-in-${s.id}`,
+      time: s.entered_at,
+      category: 'sea',
+      title: `转入公海 · ${sourceLabel}`,
+      description: [
+        s.reason,
+        s.prev_owner_name ? `原负责人：${s.prev_owner_name}` : '',
+      ].filter(Boolean).join(' · '),
+      actor: s.actor || '系统',
+    });
+    if (s.claimed_at) {
+      add({
+        id: `sea-out-${s.id}`,
+        time: s.claimed_at,
+        category: 'sea',
+        title: s.status === 'assigned' ? '从公海分配' : '从公海领取',
+        description: s.claim_name ? `负责人：${s.claim_name}` : '',
+        actor: s.claim_name || '—',
+      });
+    }
   });
 
   db.prepare(

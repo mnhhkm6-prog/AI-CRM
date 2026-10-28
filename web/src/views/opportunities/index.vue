@@ -84,8 +84,8 @@
             <el-tag
               v-else-if="col.key === 'status'"
               size="small"
-              :type="statusTagType(row.status)"
               effect="plain"
+              :style="statusTagStyle(row.status)"
             >{{ row.status }}</el-tag>
             <template v-else-if="col.key === 'stagnant_days'">
               <span v-if="stagnantDays(row) > 0" :class="['alert-dot', `alert-dot--${alertLevel(row)}`]">
@@ -275,8 +275,16 @@ function alertLevel(row: any) {
   return 0
 }
 
-function statusTagType(s?: string) {
-  return { 进行中: 'primary', 赢单: 'success', 失败: 'danger', 公海: 'info' }[s || ''] || 'info'
+/** 状态标签配色：使用固定色值，避免跟随品牌主色（橄榄绿）导致看起来像无色的灰字 */
+const STATUS_STYLE: Record<string, Record<string, string>> = {
+  进行中: { color: '#1d6feb', backgroundColor: '#ecf3ff', borderColor: '#b7d3ff' },
+  赢单: { color: '#1f9d55', backgroundColor: '#eafaf0', borderColor: '#b7e6c9' },
+  失败: { color: '#d93025', backgroundColor: '#fdeceb', borderColor: '#f7c3bf' },
+  公海: { color: '#6b7280', backgroundColor: '#f3f4f6', borderColor: '#d7dae0' },
+}
+
+function statusTagStyle(s?: string) {
+  return STATUS_STYLE[s || ''] || STATUS_STYLE['公海']
 }
 
 async function load() {

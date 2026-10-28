@@ -12,7 +12,7 @@ const multer = require('multer');
 const router = express.Router();
 const { db } = require('../db');
 const { ok, created, getPaging, paged, buildSort, requireString, requireNumber, optional, bodyOf } = require('../utils/http');
-const { notFound, badRequest } = require('../utils/errors');
+const { notFound, badRequest, forbidden, conflict } = require('../utils/errors');
 const { newId, now } = require('../utils/ids');
 const { requirePermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
@@ -88,6 +88,22 @@ router.get('/files/:id/download', requirePermission('file:view'), (req, res) => 
   const abs = path.resolve(__dirname, '../../', file.storage_path);
   if (!fs.existsSync(abs)) throw notFound('附件文件不存在');
   res.download(abs, file.original_name);
+});
+
+/** 删除未被业务记录引用的附件（上传成功但创建业务记录失败时，前端回滚调用） */
+router.delete('/files/:id', requirePermission('file:upload'), (req, res) => {
+  const file = requireFileStorage(req.params.id);
+  if (!req.user.isAdmin && file.uploader_id !== req.user.id) throw forbidden('只能删除本人上传的附件');
+  const used = ['proposals', 'quotations', 'contracts'].some((table) =>
+    db.prepare(`SELECT 1 FROM ${table} WHERE file_storage_id = ? AND is_deleted = 0`).get(file.id)
+  );
+  if (used) throw conflict('附件已被业务记录引用，不能删除');
+  const abs = path.resolve(__dirname, '../../', file.storage_path);
+  if (!abs.startsWith(UPLOAD_DIR + path.sep)) throw badRequest('附件路径不合法');
+  if (fs.existsSync(abs)) fs.unlinkSync(abs);
+  db.prepare('UPDATE file_storages SET is_deleted = 1 WHERE id = ?').run(file.id);
+  logOperation(req, { action: 'DELETE_FILE', targetType: 'FileStorage', targetId: file.id, detail: { original_name: file.original_name } });
+  ok(res, { id: file.id, deleted: true });
 });
 
 // ---------------------------------------------------------------- 方案
@@ -271,6 +287,61 @@ router.post('/opportunities/:id/quotations', requirePermission('quotation:create
   approvalFlow.startFor('quotation', id, req);
   logOperation(req, { action: 'CREATE_QUOTATION', targetType: 'Quotation', targetId: id, detail: { opportunity_id: opp.id, amount } });
   created(res, db.prepare('SELECT * FROM quotations WHERE id = ?').get(id));
+});
+
+/** 删除不再被任何业务记录引用的附件（替换报价附件时清理旧文件） */
+function removeFileIfUnused(fileId) {
+  if (!fileId) return;
+  const file = db.prepare('SELECT * FROM file_storages WHERE id = ? AND is_deleted = 0').get(fileId);
+  if (!file) return;
+  const used = ['proposals', 'quotations', 'contracts'].some((table) =>
+    db.prepare(`SELECT 1 FROM ${table} WHERE file_storage_id = ? AND is_deleted = 0`).get(file.id)
+  );
+  if (used) return;
+  const abs = path.resolve(__dirname, '../../', file.storage_path);
+  if (abs.startsWith(UPLOAD_DIR + path.sep) && fs.existsSync(abs)) fs.unlinkSync(abs);
+  db.prepare('UPDATE file_storages SET is_deleted = 1 WHERE id = ?').run(file.id);
+}
+
+/** 编辑报价：审批中或已通过不可修改；撤回/驳回后可修改再重新提交审批 */
+router.put('/quotations/:id', requirePermission('quotation:update'), (req, res) => {
+  const quotation = db.prepare('SELECT * FROM quotations WHERE id = ? AND is_deleted = 0').get(req.params.id);
+  if (!quotation) throw notFound('报价不存在');
+  requireOpportunity(req, quotation.opportunity_id);
+  if (quotation.approval_status === 'pending') throw badRequest('报价审批中，请先撤回后再修改');
+  if (quotation.approval_status === 'approved') throw badRequest('报价已审批通过，不可修改');
+
+  const body = bodyOf(req);
+  const quotationType =
+    body.quotation_type === undefined ? quotation.quotation_type : requireString(body, 'quotation_type', '报价类型');
+  if (!['preliminary', 'final'].includes(quotationType)) throw badRequest('quotation_type 仅支持 preliminary 或 final');
+  const amount = body.amount === undefined ? quotation.amount : requireNumber(body, 'amount', '报价金额');
+  if (!(amount > 0)) throw badRequest('报价金额必须大于 0');
+  const productType =
+    body.product_type === undefined ? quotation.product_type : requireString(body, 'product_type', '产品类型');
+
+  let { file_storage_id: fileStorageId, file_url: fileUrl, file_name: fileName } = quotation;
+  let replacedFileId = '';
+  if (body.file_storage_id && body.file_storage_id !== quotation.file_storage_id) {
+    const file = requireFileStorage(body.file_storage_id);
+    replacedFileId = quotation.file_storage_id || '';
+    fileStorageId = file.id;
+    fileUrl = fileUrlOf(file);
+    fileName = file.original_name;
+  }
+
+  const remark = body.remark === undefined ? quotation.remark : optional(body, 'remark');
+  db.prepare(
+    `UPDATE quotations SET quotation_type = ?, amount = ?, product_type = ?, file_storage_id = ?, file_url = ?, file_name = ?, remark = ?, updated_at = ? WHERE id = ?`
+  ).run(quotationType, amount, productType, fileStorageId, fileUrl, fileName, remark, now(), quotation.id);
+  removeFileIfUnused(replacedFileId);
+  logOperation(req, {
+    action: 'UPDATE_QUOTATION',
+    targetType: 'Quotation',
+    targetId: quotation.id,
+    detail: { opportunity_id: quotation.opportunity_id, amount },
+  });
+  ok(res, db.prepare('SELECT * FROM quotations WHERE id = ?').get(quotation.id));
 });
 
 router.delete('/quotations/:id', requirePermission('quotation:delete'), (req, res) => {

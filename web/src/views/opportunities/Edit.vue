@@ -3,7 +3,7 @@
     <div class="page-card">
       <div class="page-head">
         <div class="page-head__left">
-          <el-button link @click="back">← 返回列表</el-button>
+          <el-button link @click="back">{{ isEdit ? '← 返回详情' : '← 返回列表' }}</el-button>
           <h2 class="page-title">{{ isEdit ? `编辑商机${form.name ? ' · ' + form.name : ''}` : '新建商机' }}</h2>
         </div>
       </div>
@@ -33,24 +33,30 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item id="field-amount" label="预计金额">
+            <el-form-item id="field-amount" label="预计金额" :required="isStageRequired('amount')">
               <el-input-number v-model="form.amount" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item id="field-expected_close_date" label="预计成交日期">
-              <el-date-picker v-model="form.expected_close_date" type="date" value-format="YYYY-MM-DD" placeholder="选填" style="width: 100%" />
+            <el-form-item id="field-expected_close_date" label="预计成交日期" :required="isStageRequired('expected_close_date')">
+              <el-date-picker
+                v-model="form.expected_close_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                :placeholder="isStageRequired('expected_close_date') ? '请选择日期' : '选填'"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item id="field-owner_id" label="负责人">
+            <el-form-item id="field-owner_id" label="负责人" :required="isStageRequired('owner_id')">
               <el-select v-model="form.owner_id" clearable filterable placeholder="默认为本人" style="width: 100%">
                 <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item id="field-remark" label="备注">
+            <el-form-item id="field-remark" label="备注" :required="isStageRequired('remark')">
               <el-input v-model="form.remark" type="textarea" :rows="3" maxlength="300" show-word-limit />
             </el-form-item>
           </el-col>
@@ -96,6 +102,15 @@ const customerOptions = ref<any[]>([])
 const customFields = ref<Record<string, any>>({})
 const stageOptions = ref<any[]>([])
 const loadedStageId = ref('')
+/** 当前阶段配置为必填的内置字段（来自商机详情的 fixed_actions） */
+const stageRequiredBuiltin = ref<string[]>([])
+/** 可在编辑页填写、且可能被配置为阶段固定动作的内置字段 */
+const BUILTIN_LABELS: Record<string, string> = {
+  amount: '预计金额',
+  expected_close_date: '预计成交日期',
+  owner_id: '负责人',
+  remark: '备注',
+}
 
 const id = computed(() => (route.params.id as string) || '')
 const isEdit = computed(() => !!id.value)
@@ -116,7 +131,28 @@ const rules: FormRules = {
   customer_id: [{ required: true, message: '请选择所属客户', trigger: 'change' }],
 }
 
+function isStageRequired(key: string) {
+  return stageRequiredBuiltin.value.includes(key)
+}
+
+/** 当前阶段必填的内置字段是否已填（与推进校验口径一致：金额需大于 0） */
+function builtinMissing(): { field_code: string; field_name: string }[] {
+  return stageRequiredBuiltin.value
+    .filter((key) => {
+      if (key === 'amount') return !(Number(form.amount) > 0)
+      if (key === 'expected_close_date') return !form.expected_close_date
+      if (key === 'owner_id') return !form.owner_id
+      if (key === 'remark') return !String(form.remark || '').trim()
+      return false
+    })
+    .map((key) => ({ field_code: key, field_name: BUILTIN_LABELS[key] || key }))
+}
+
 function back() {
+  if (isEdit.value) {
+    router.push(`/opportunities/${id.value}`)
+    return
+  }
   router.push('/opportunities')
 }
 
@@ -134,10 +170,13 @@ async function searchCustomers(keyword: string) {
 async function save() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
-  const missing = (customFieldRef.value?.validate?.() || []) as { field_code: string; field_name: string }[]
+  const missing = [
+    ...builtinMissing(),
+    ...((customFieldRef.value?.validate?.() || []) as { field_code: string; field_name: string }[]),
+  ]
   if (missing.length) {
     ElMessage.warning(`请填写当前阶段必填项：${missing.map((m) => m.field_name).join('、')}`)
-    customFieldRef.value?.focusField?.(missing[0].field_code)
+    focusField(missing[0].field_code)
     return
   }
   submitting.value = true
@@ -179,16 +218,20 @@ async function save() {
   }
 }
 
-/** 由推进弹窗“去填写”带入的字段定位 */
-async function focusRequestedField() {
-  const key = String(route.query.focus || '')
-  if (!key) return
-  await nextTick()
+function focusField(key: string) {
   const el = document.getElementById(`field-${key}`)
   if (!el) return
   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   const input = el.querySelector('input, textarea') as HTMLElement | null
   input?.focus?.()
+}
+
+/** 由推进弹窗“去填写”带入的字段定位 */
+async function focusRequestedField() {
+  const key = String(route.query.focus || '')
+  if (!key) return
+  await nextTick()
+  focusField(key)
 }
 
 /** 阶段列表用于判断“当前阶段”的必填字段 */
@@ -215,6 +258,9 @@ onMounted(async () => {
       form.remark = row.remark || ''
       customFields.value = row.custom_fields || {}
       loadedStageId.value = row.stage_config_id || ''
+      stageRequiredBuiltin.value = ((row.fixed_actions?.items || []) as any[])
+        .filter((i) => i?.is_required === 1 && !i.core && !!BUILTIN_LABELS[i?.field_key])
+        .map((i) => i.field_key)
       if (row.customer_id) customerOptions.value = [{ id: row.customer_id, name: row.customer_name || '当前客户' }]
     } finally {
       loading.value = false

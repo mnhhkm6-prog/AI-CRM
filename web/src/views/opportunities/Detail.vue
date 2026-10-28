@@ -5,7 +5,7 @@
         <div class="page-head__left">
           <el-button link @click="back">← 商机列表</el-button>
           <h2 class="page-title">{{ opp?.name }}</h2>
-          <el-tag size="small" :type="statusTagType(opp?.status)" effect="plain">{{ opp?.status }}</el-tag>
+          <el-tag size="small" effect="plain" :style="statusTagStyle(opp?.status)">{{ opp?.status }}</el-tag>
           <span v-if="alertLevel" :class="['alert-dot', `alert-dot--${alertLevel}`]">停滞 {{ stagnantDays }} 天</span>
         </div>
         <div class="page-head__right">
@@ -148,10 +148,18 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="200" align="center">
+                  <el-table-column label="操作" width="280" align="center">
                     <template #default="{ row }">
                       <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
                       <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
+                      <el-button v-if="canWithdraw(row)" link type="warning" size="small" @click="withdrawQuotation(row)">撤回</el-button>
+                      <el-button
+                        v-if="canQuotationUpdate && row.approval_status !== 'pending' && row.approval_status !== 'approved'"
+                        link
+                        type="primary"
+                        size="small"
+                        @click="openQuotationEdit(row)"
+                      >编辑</el-button>
                       <el-button
                         v-if="row.approval_status === 'rejected' || row.approval_status === 'canceled'"
                         link
@@ -502,7 +510,7 @@
     </el-dialog>
 
     <!-- 上传报价（M5-R2，商机固定） -->
-    <el-dialog v-model="quotationDialog" title="上传报价" width="480px" align-center @closed="resetQuotationForm">
+    <el-dialog v-model="quotationDialog" :title="editingQuotationId ? '编辑报价' : '上传报价'" width="480px" align-center @closed="resetQuotationForm">
       <el-form label-width="90px">
         <el-form-item label="关联商机">
           <el-input :model-value="opp?.name || ''" disabled />
@@ -531,7 +539,7 @@
           >
             <el-button>选择文件</el-button>
             <template #tip>
-              <div class="el-upload__tip">可选，单个文件，大小不超过 50MB</div>
+              <div class="el-upload__tip">可选，单个文件，大小不超过 50MB{{ editingQuotationId ? '；不选择则保留原附件' : '' }}</div>
             </template>
           </el-upload>
         </el-form-item>
@@ -713,6 +721,7 @@ const shareForm = reactive<any>({ shared_to: '', permissions: ['view', 'activity
 
 const proposalDialog = ref(false)
 const quotationDialog = ref(false)
+const editingQuotationId = ref('')
 const proposalUploadRef = ref<any>(null)
 const quotationUploadRef = ref<any>(null)
 const proposalFile = ref<File | null>(null)
@@ -745,6 +754,7 @@ const canProposalCreate = computed(() => userStore.hasPerm('proposal:create'))
 const canProposalDelete = computed(() => userStore.hasPerm('proposal:delete'))
 const canQuotationCreate = computed(() => userStore.hasPerm('quotation:create'))
 const canQuotationDelete = computed(() => userStore.hasPerm('quotation:delete'))
+const canQuotationUpdate = computed(() => userStore.hasPerm('quotation:update'))
 const canCompetitorCreate = computed(() => userStore.hasPerm('competitor:create'))
 const canCompetitorDelete = computed(() => userStore.hasPerm('competitor:delete'))
 const canContractCreate = computed(() => userStore.hasPerm('contract:create'))
@@ -837,12 +847,20 @@ function formatCustomValue(v: any, def?: any) {
   return String(v)
 }
 
-function statusTagType(s?: string) {
-  return { 进行中: 'primary', 赢单: 'success', 失败: 'danger', 公海: 'info' }[s || ''] || 'info'
+/** 状态标签配色：使用固定色值，避免跟随品牌主色（橄榄绿）导致看起来像无色的灰字 */
+const STATUS_STYLE: Record<string, Record<string, string>> = {
+  进行中: { color: '#1d6feb', backgroundColor: '#ecf3ff', borderColor: '#b7d3ff' },
+  赢单: { color: '#1f9d55', backgroundColor: '#eafaf0', borderColor: '#b7e6c9' },
+  失败: { color: '#d93025', backgroundColor: '#fdeceb', borderColor: '#f7c3bf' },
+  公海: { color: '#6b7280', backgroundColor: '#f3f4f6', borderColor: '#d7dae0' },
+}
+
+function statusTagStyle(s?: string) {
+  return STATUS_STYLE[s || ''] || STATUS_STYLE['公海']
 }
 
 const APPROVAL_META: Record<string, { label: string; type: string }> = {
-  none: { label: '未提交', type: 'info' },
+  none: { label: '无需审批', type: 'info' },
   pending: { label: '审批中', type: 'warning' },
   approved: { label: '已通过', type: 'success' },
   rejected: { label: '已驳回', type: 'danger' },
@@ -871,6 +889,7 @@ const TIMELINE_META: Record<string, { label: string; type: string }> = {
   contract: { label: '合同', type: 'success' },
   competitor: { label: '竞对', type: 'info' },
   share: { label: '协作', type: 'info' },
+  sea: { label: '公海', type: 'warning' },
   loss: { label: '失效', type: 'danger' },
   stagnation: { label: '停滞', type: 'warning' },
   approval: { label: '审批', type: 'primary' },
@@ -992,6 +1011,12 @@ function onProposalFileRemove() {
   proposalFile.value = null
 }
 
+/** 业务记录创建失败时删除已上传的附件，避免留下无主文件 */
+async function rollbackUpload(fileStorageId: string) {
+  if (!fileStorageId) return
+  await api.deleteFile(fileStorageId).catch(() => {})
+}
+
 async function submitProposal() {
   if (!proposalForm.proposal_type) {
     ElMessage.warning('请选择方案类型')
@@ -1002,21 +1027,55 @@ async function submitProposal() {
     return
   }
   submitting.value = true
+  let uploadedId = ''
   try {
     const uploaded = (await api.uploadFile(proposalFile.value)) as any
+    uploadedId = uploaded.file_storage_id
     await api.createProposal(id.value, {
       proposal_type: proposalForm.proposal_type,
-      file_storage_id: uploaded.file_storage_id,
+      file_storage_id: uploadedId,
     })
-    ElMessage.success('方案已上传')
-    proposalDialog.value = false
-    await load()
+  } catch (e) {
+    await rollbackUpload(uploadedId)
+    throw e
   } finally {
     submitting.value = false
   }
+  ElMessage.success('方案已上传')
+  proposalDialog.value = false
+  await load()
+}
+
+function canWithdraw(row: any) {
+  return (
+    row.approval_status === 'pending' &&
+    !!row.approval_instance_id &&
+    (userStore.isAdmin || row.uploaded_by === userStore.profile?.id)
+  )
+}
+
+async function withdrawQuotation(row: any) {
+  await ElMessageBox.confirm('撤回后该报价变为已撤回，可修改后重新提交审批。', '撤回确认', { type: 'warning' })
+  await api.cancelInstance(row.approval_instance_id)
+  ElMessage.success('已撤回')
+  await load()
+}
+
+function openQuotationEdit(row: any) {
+  editingQuotationId.value = row.id
+  Object.assign(quotationForm, {
+    quotation_type: row.quotation_type,
+    product_type: row.product_type || '',
+    amount: Number(row.amount || 0),
+    remark: row.remark || '',
+  })
+  quotationFile.value = null
+  quotationDialog.value = true
+  nextTick(() => quotationUploadRef.value?.clearFiles())
 }
 
 function openQuotation(type = 'preliminary') {
+  editingQuotationId.value = ''
   Object.assign(quotationForm, { quotation_type: type, product_type: '', amount: 0, remark: '' })
   quotationFile.value = null
   quotationDialog.value = true
@@ -1024,6 +1083,7 @@ function openQuotation(type = 'preliminary') {
 }
 
 function resetQuotationForm() {
+  editingQuotationId.value = ''
   quotationFile.value = null
   quotationUploadRef.value?.clearFiles()
 }
@@ -1050,25 +1110,46 @@ async function submitQuotation() {
     return
   }
   submitting.value = true
+  let uploadedId = ''
+  const editingId = editingQuotationId.value
   try {
-    let fileStorageId: string | undefined
     if (quotationFile.value) {
       const uploaded = (await api.uploadFile(quotationFile.value)) as any
-      fileStorageId = uploaded.file_storage_id
+      uploadedId = uploaded.file_storage_id
     }
-    await api.createQuotation(id.value, {
+    const payload = {
       quotation_type: quotationForm.quotation_type,
       product_type: quotationForm.product_type,
       amount: quotationForm.amount,
       remark: quotationForm.remark || undefined,
-      file_storage_id: fileStorageId,
-    })
-    ElMessage.success('报价已上传')
-    quotationDialog.value = false
-    await load()
+      file_storage_id: uploadedId || undefined,
+    }
+    if (editingId) await api.updateQuotation(editingId, payload)
+    else await api.createQuotation(id.value, payload)
+  } catch (e) {
+    await rollbackUpload(uploadedId)
+    throw e
   } finally {
     submitting.value = false
   }
+  if (editingId) {
+    const row: any = quotations.value.find((q: any) => q.id === editingId)
+    if (row && (row.approval_status === 'canceled' || row.approval_status === 'rejected')) {
+      try {
+        const res: any = await api.resubmitApproval('quotation', editingId)
+        if (res && res.submitted === false) ElMessage.info('报价已更新；当前未命中审批条件，无需审批')
+        else ElMessage.success('报价已更新并重新提交审批')
+      } catch {
+        ElMessage.warning('报价已更新，但重新提交审批失败，请稍后点击「重新提交」')
+      }
+    } else {
+      ElMessage.success('报价已更新')
+    }
+  } else {
+    ElMessage.success('报价已上传')
+  }
+  quotationDialog.value = false
+  await load()
 }
 
 function onFileExceed() {
@@ -1208,8 +1289,10 @@ async function submitContract() {
     return
   }
   submitting.value = true
+  let uploadedId = ''
   try {
     const uploaded: any = await api.uploadFile(contractFile.value)
+    uploadedId = uploaded.file_storage_id
     await api.createContract(id.value, {
       contract_no: contractForm.contract_no.trim(),
       amount: Number(contractForm.amount),
@@ -1217,14 +1300,17 @@ async function submitContract() {
       signed_by: contractForm.signed_by,
       contract_name: contractForm.contract_name || undefined,
       product_type: contractForm.product_type || undefined,
-      file_storage_id: uploaded.file_storage_id,
+      file_storage_id: uploadedId,
     })
-    ElMessage.success('合同已创建')
-    contractDialog.value = false
-    await load()
+  } catch (e) {
+    await rollbackUpload(uploadedId)
+    throw e
   } finally {
     submitting.value = false
   }
+  ElMessage.success('合同已创建')
+  contractDialog.value = false
+  await load()
 }
 
 /** 固定动作未完成项的快捷入口文案（权限不足时不展示） */

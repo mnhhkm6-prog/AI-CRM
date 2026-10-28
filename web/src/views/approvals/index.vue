@@ -134,7 +134,7 @@
           </div>
           <div v-else-if="tab === 'mine' && current.status === 'pending'" class="section-card">
             <h3 class="section-card__title">发起人操作</h3>
-            <el-alert type="warning" :closable="false" show-icon title="撤回后该审批终止，业务数据回到未提交状态。" />
+            <el-alert type="warning" :closable="false" show-icon title="撤回后该审批终止，业务数据变为已撤回，可修改后重新提交。" />
             <div class="drawer-actions">
               <el-button :loading="submitting" @click="cancelApproval">撤回审批</el-button>
             </div>

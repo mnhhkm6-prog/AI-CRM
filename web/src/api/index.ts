@@ -199,6 +199,7 @@ export const deleteProposal = (id: string) => client.delete(`/proposals/${id}`)
 export const listQuotations = (opportunityId: string) => client.get<any, any[]>(`/opportunities/${opportunityId}/quotations`)
 export const listAllQuotations = (params?: PageQuery) => client.get<any, Paged<any>>('/quotations', { params })
 export const createQuotation = (opportunityId: string, body: any) => client.post(`/opportunities/${opportunityId}/quotations`, body)
+export const updateQuotation = (id: string, body: any) => client.put(`/quotations/${id}`, body)
 export const deleteQuotation = (id: string) => client.delete(`/quotations/${id}`)
 
 export const listProductPrices = (params?: PageQuery) => client.get<any, Paged<any>>('/products/prices', { params })

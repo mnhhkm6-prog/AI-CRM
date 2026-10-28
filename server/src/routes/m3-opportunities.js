@@ -208,6 +208,13 @@ router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, 
   });
   if (!Object.keys(after).length && !body.custom_fields) throw badRequest('没有可更新的字段');
 
+  // 公海商机指定负责人视为「分配」：同步移出公海并恢复进行中，避免出现“有负责人但仍在公海”
+  if (before.is_in_sea === 1 && after.owner_id) {
+    seaService.assign('opportunity', before.id, after.owner_id, req.user);
+    delete after.owner_id;
+  }
+  const changedKeys = Object.keys(after);
+
   // 必填项跟随当前阶段：仅校验当前阶段关联且标记必填的字段
   const mergedCustomFields = {
     ...customField.readValues('opportunity', before.id),
@@ -222,15 +229,15 @@ router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, 
     );
   }
 
-  if (Object.keys(after).length) {
-    const sets = Object.keys(after).map((f) => `${f} = @${f}`).join(', ');
+  if (changedKeys.length) {
+    const sets = changedKeys.map((f) => `${f} = @${f}`).join(', ');
     db.prepare(`UPDATE opportunities SET ${sets}, updated_at = @t WHERE id = @id`).run({ ...after, id: before.id, t: now() });
   }
   if (body.custom_fields) customField.setValues('opportunity', before.id, body.custom_fields, req.user.id);
 
   stageEngine.touchOpportunity(before.id, req);
   const updated = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(before.id);
-  logOperation(req, { action: 'UPDATE_OPPORTUNITY', targetType: 'Opportunity', targetId: before.id, detail: diffFields(before, updated, Object.keys(after)) });
+  logOperation(req, { action: 'UPDATE_OPPORTUNITY', targetType: 'Opportunity', targetId: before.id, detail: diffFields(before, updated, changedKeys) });
 
   updated.custom_fields = customField.readValues('opportunity', before.id);
   ok(res, updated);
@@ -331,7 +338,12 @@ router.post('/opportunities/batch', requireAnyPermission(['opportunity:update', 
     }
     try {
       if (action === 'transfer') {
-        db.prepare('UPDATE opportunities SET owner_id = ?, updated_at = ? WHERE id = ?').run(ownerId, now(), id);
+        if (row.is_in_sea === 1) {
+          // 公海商机指定负责人视为「分配」：移出公海、恢复进行中并关闭公海池记录
+          seaService.assign('opportunity', id, ownerId, req.user);
+        } else {
+          db.prepare('UPDATE opportunities SET owner_id = ?, updated_at = ? WHERE id = ?').run(ownerId, now(), id);
+        }
       } else if (action === 'release_to_sea') {
         seaService.moveToSea({ entityType: 'opportunity', entityId: id, reason, source: 'manual', user: req.user });
       } else {

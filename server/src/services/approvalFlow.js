@@ -341,7 +341,7 @@ function cancel(instanceId, user) {
     "UPDATE approval_tasks SET status = 'skipped', handled_at = ?, updated_at = ? WHERE instance_id = ? AND status = 'pending'"
   ).run(t, t, instanceId);
   finishInstance(instance, 'canceled');
-  setBusinessStatus(instance.biz_type, instance.biz_id, 'none', null);
+  setBusinessStatus(instance.biz_type, instance.biz_id, 'canceled', null);
   logOperation({ user }, { action: 'CANCEL_APPROVAL', targetType: 'ApprovalInstance', targetId: instanceId });
   return { status: 'canceled' };
 }
