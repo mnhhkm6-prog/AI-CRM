@@ -128,6 +128,8 @@ export const recycleLead = (id: string, reason: string) => client.post(`/leads/$
  * M3 商机（P11–P14）
  * ============================================================ */
 export const listOpportunities = (params?: PageQuery) => client.get<any, Paged<any>>('/opportunities', { params })
+/** 商机列表负责人筛选项：仅返回当前可见商机中出现过的负责人 */
+export const listOpportunityOwnerOptions = () => client.get<any, any[]>('/opportunities/owner-options')
 /** 阶段下拉选项（商机推进 / 看板列头） */
 export const stageOptions = (includeDisabled = false) =>
   client.get<any, any[]>('/stage-options', { params: includeDisabled ? { include_disabled: 1 } : {} })
@@ -210,11 +212,13 @@ export const deleteProductPrice = (id: string) => client.delete(`/products/price
 export const listCompetitors = (opportunityId: string) => client.get<any, any[]>(`/opportunities/${opportunityId}/competitors`)
 export const listAllCompetitors = (params?: PageQuery) => client.get<any, Paged<any>>('/competitors', { params })
 export const createCompetitor = (opportunityId: string, body: any) => client.post(`/opportunities/${opportunityId}/competitors`, body)
+export const updateCompetitor = (id: string, body: any) => client.put(`/competitors/${id}`, body)
 export const deleteCompetitor = (id: string) => client.delete(`/competitors/${id}`)
 export const listCompetitorMasters = (params?: PageQuery) => client.get<any, Paged<any>>('/competitor-masters', { params })
 export const createCompetitorMaster = (body: any) => client.post<any, { id: string }>('/competitor-masters', body)
 export const updateCompetitorMaster = (id: string, body: any) => client.put(`/competitor-masters/${id}`, body)
 export const disableCompetitorMaster = (id: string, status: string) => client.post(`/competitor-masters/${id}/disable`, { status })
+export const deleteCompetitorMaster = (id: string) => client.delete(`/competitor-masters/${id}`)
 
 export const listContracts = (params?: PageQuery) => client.get<any, Paged<any>>('/contracts', { params })
 export const getContract = (id: string) => client.get<any, any>(`/contracts/${id}`)
@@ -286,6 +290,7 @@ export const exportReport = async (type: string, params: Record<string, any> = {
  * M10 系统管理（P28–P32）
  * ============================================================ */
 export const listUsers = (params?: PageQuery) => client.get<any, Paged<any>>('/users', { params })
+export const listUserOptions = () => client.get<any, any[]>('/users/options')
 export const getUser = (id: string) => client.get<any, any>(`/users/${id}`)
 export const createUser = (body: any) => client.post<any, { id: string }>('/users', body)
 export const updateUser = (id: string, body: any) => client.put(`/users/${id}`, body)

@@ -30,6 +30,34 @@ function loadOpportunity(req) {
   return row;
 }
 
+/** 被分享商机的权限清单；未分享返回 null */
+function sharePermissionList(opportunityId, userId) {
+  const share = db
+    .prepare('SELECT permissions FROM opportunity_shares WHERE opportunity_id = ? AND shared_to = ? AND is_revoked = 0')
+    .get(opportunityId, userId);
+  if (!share) return null;
+  try {
+    const arr = JSON.parse(share.permissions || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/** 写操作校验：负责人/管理员放行；被分享者需具备指定分享权限 */
+function assertOpportunityWrite(req, opportunity, required) {
+  if (req.user.isAdmin || opportunity.owner_id === req.user.id) return;
+  const perms = sharePermissionList(opportunity.id, req.user.id);
+  if (!perms) throw notFound('商机不存在或无权访问');
+  if (!perms.includes(required)) throw forbidden('分享权限不足，无法执行该操作');
+}
+
+/** 仅商机负责人/管理员可执行（删除、转公海、回退、批量等） */
+function assertOpportunityOwner(req, opportunity) {
+  if (req.user.isAdmin || opportunity.owner_id === req.user.id) return;
+  throw forbidden('仅商机负责人可执行该操作');
+}
+
 /** 精简阶段信息（去掉配置类大字段） */
 function pickStage(stage) {
   if (!stage) return null;
@@ -37,6 +65,22 @@ function pickStage(stage) {
   STAGE_BIG_FIELDS.forEach((f) => delete out[f]);
   return out;
 }
+
+// 商机负责人筛选项：只返回当前用户可见商机中出现过的负责人
+router.get('/opportunities/owner-options', requirePermission('opportunity:view'), (req, res) => {
+  const scope = dataScope.scopeFragment(req.user, 'opportunity', 't.owner_id');
+  const rows = db
+    .prepare(
+      `SELECT t.owner_id AS value, u.name, u.username
+       FROM opportunities t
+       LEFT JOIN users u ON u.id = t.owner_id
+       WHERE t.is_deleted = 0 AND t.owner_id IS NOT NULL${scope.sql}
+       GROUP BY t.owner_id
+       ORDER BY u.name`
+    )
+    .all(...scope.params);
+  ok(res, rows);
+});
 
 /** 商机列表（M3-R6：数据权限 + 关键字 + 自定义字段筛选） */
 router.get('/opportunities', requirePermission('opportunity:view'), (req, res) => {
@@ -196,6 +240,7 @@ router.get('/opportunities/:id', requirePermission('opportunity:view'), (req, re
 /** 编辑商机（字段编辑视为推进动作，解除停滞预警） */
 router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, res) => {
   const before = loadOpportunity(req);
+  assertOpportunityWrite(req, before, 'edit');
   const body = bodyOf(req);
 
   if (body.amount !== undefined && body.amount !== null && body.amount !== '' && Number.isNaN(Number(body.amount))) {
@@ -246,6 +291,7 @@ router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, 
 /** 删除商机（软删） */
 router.delete('/opportunities/:id', requirePermission('opportunity:delete'), (req, res) => {
   const row = loadOpportunity(req);
+  assertOpportunityOwner(req, row);
   db.prepare('UPDATE opportunities SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
   logOperation(req, { action: 'DELETE_OPPORTUNITY', targetType: 'Opportunity', targetId: row.id, detail: { name: row.name } });
   ok(res, { id: row.id, deleted: true });
@@ -259,14 +305,16 @@ router.get('/opportunities/:id/advance-check', requirePermission('opportunity:vi
 
 /** 阶段推进（M3-R2） */
 router.post('/opportunities/:id/advance', requirePermission('opportunity:update'), (req, res) => {
-  loadOpportunity(req);
+  const row = loadOpportunity(req);
+  assertOpportunityWrite(req, row, 'advance');
   const result = stageEngine.advance(req.params.id, bodyOf(req), req);
   ok(res, { opportunity: result.opportunity, evaluation: result.evaluation });
 });
 
 /** 阶段回退（M3-R3，仅管理层） */
 router.post('/opportunities/:id/rollback', requirePermission('opportunity:rollback'), (req, res) => {
-  loadOpportunity(req);
+  const row = loadOpportunity(req);
+  assertOpportunityOwner(req, row);
   const body = bodyOf(req);
   const result = stageEngine.rollback(req.params.id, { to_stage: body.to_stage, reason: body.reason }, req);
   ok(res, result);
@@ -274,13 +322,15 @@ router.post('/opportunities/:id/rollback', requirePermission('opportunity:rollba
 
 /** 赢单关闭（M3-R4，可同时落合同） */
 router.post('/opportunities/:id/close-win', requirePermission('opportunity:update'), (req, res) => {
-  loadOpportunity(req);
+  const row = loadOpportunity(req);
+  assertOpportunityWrite(req, row, 'edit');
   ok(res, stageEngine.closeWin(req.params.id, bodyOf(req), req));
 });
 
 /** 失败关闭（M3-R5/M8-R1，生成失效申请） */
 router.post('/opportunities/:id/close-loss', requirePermission('opportunity:update'), (req, res) => {
-  loadOpportunity(req);
+  const row = loadOpportunity(req);
+  assertOpportunityWrite(req, row, 'edit');
   ok(res, stageEngine.closeLoss(req.params.id, bodyOf(req), req));
 });
 
@@ -299,6 +349,7 @@ router.get('/opportunities/:id/stage-progress', requirePermission('opportunity:v
 /** 商机转公海（P14 更多菜单 / M6-R5） */
 router.post('/opportunities/:id/release-to-sea', requirePermission('opportunity:update'), (req, res) => {
   const row = loadOpportunity(req);
+  assertOpportunityOwner(req, row);
   const reason = requireString(bodyOf(req), 'reason', '转公海原因');
   const record = seaService.moveToSea({
     entityType: 'opportunity', entityId: row.id, reason, source: 'manual', user: req.user,
@@ -334,6 +385,10 @@ router.post('/opportunities/batch', requireAnyPermission(['opportunity:update', 
     const row = dataScope.findScoped('opportunity', 'opportunities', id, req.user);
     if (!row) {
       failed.push({ id, reason: '商机不存在或无权操作' });
+      return;
+    }
+    if (!req.user.isAdmin && row.owner_id !== req.user.id) {
+      failed.push({ id, reason: '仅商机负责人可批量操作' });
       return;
     }
     try {

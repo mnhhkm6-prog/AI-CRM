@@ -32,7 +32,7 @@
           <el-option v-for="o in OPPORTUNITY_STATUS" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select v-model="query.owner_id" placeholder="负责人" clearable filterable style="width: 170px" @change="reload">
-          <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in filterOwners" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-date-picker
           v-model="dateRange"
@@ -203,6 +203,7 @@ const loading = ref(false)
 const items = ref<any[]>([])
 const total = ref(0)
 const owners = ref<Option[]>([])
+const filterOwners = ref<Option[]>([])
 const stages = ref<any[]>([])
 const dateRange = ref<[string, string] | null>(null)
 const advanceDialog = ref(false)
@@ -222,7 +223,7 @@ const query = reactive({
 const filterDefs = computed<ViewFilterDef[]>(() => [
   { key: 'stage_config_id', label: '当前阶段', type: 'select', options: stages.value.map((s: any) => ({ label: stageLabel(s), value: s.id })) },
   { key: 'status', label: '商机状态', type: 'select', options: OPPORTUNITY_STATUS },
-  { key: 'owner_id', label: '负责人', type: 'select', options: owners.value },
+  { key: 'owner_id', label: '负责人', type: 'select', options: filterOwners.value },
 ])
 
 function stageLabel(s: any) {
@@ -432,6 +433,15 @@ async function onCommand(cmd: string, row: any) {
 
 onMounted(async () => {
   owners.value = await loadOwnerOptions(userStore.hasPerm('user:view'), userStore.profile || undefined)
+  try {
+    const rows = await api.listOpportunityOwnerOptions()
+    filterOwners.value = (rows || []).map((u: any) => ({
+      label: u.username ? `${u.name}（${u.username}）` : u.name,
+      value: u.value,
+    }))
+  } catch (e) {
+    filterOwners.value = []
+  }
   try {
     stages.value = await api.stageOptions(true)
   } catch (e) {

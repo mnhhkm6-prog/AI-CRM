@@ -77,17 +77,16 @@ export const labelOf = (options: Option[], value?: string | null) =>
 
 /**
  * 负责人候选列表
- * - 拥有 user:view 权限时拉取全部在职用户；否则仅返回当前用户（销售自助场景）
+ * - 统一走 `/users/options`（登录即可），返回全部启用用户的精简信息
+ * - 接口异常时回退为仅当前用户
  */
-export async function loadOwnerOptions(hasUserView: boolean, current?: { id: string; name: string }): Promise<Option[]> {
-  if (hasUserView) {
-    try {
-      const res = await api.listUsers({ page_size: 200, status: 'enabled' })
-      const list = (res.list || []).map((u: any) => ({ label: `${u.name}（${u.username}）`, value: u.id }))
-      if (list.length) return list
-    } catch (e) {
-      /* 无权限或接口异常时回退为仅本人 */
-    }
+export async function loadOwnerOptions(_hasUserView: boolean, current?: { id: string; name: string }): Promise<Option[]> {
+  try {
+    const res = await api.listUserOptions()
+    const list = (res || []).map((u: any) => ({ label: `${u.name}（${u.username}）`, value: u.id }))
+    if (list.length) return list
+  } catch (e) {
+    /* 接口异常时回退为仅本人 */
   }
   return current ? [{ label: `${current.name}（我）`, value: current.id }] : []
 }

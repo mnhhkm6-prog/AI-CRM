@@ -37,7 +37,7 @@ router.get('/activities', requirePermission('activity:view'), (req, res) => {
   const conditions = ['t.is_deleted = 0'];
   const params = [];
 
-  const scope = dataScope.scopeFragment(req.user, 'activity');
+  const scope = dataScope.scopeFragment(req.user, 'activity', 't.created_by');
   if (scope.sql) {
     conditions.push(scope.sql.replace(/^ AND /, ''));
     params.push(...scope.params);
@@ -123,7 +123,7 @@ router.get('/activities/stats', requirePermission('activity:view'), (req, res) =
   const conditions = ['t.is_deleted = 0'];
   const params = [];
 
-  const scope = dataScope.scopeFragment(req.user, 'activity');
+  const scope = dataScope.scopeFragment(req.user, 'activity', 't.created_by');
   if (scope.sql) {
     conditions.push(scope.sql.replace(/^ AND /, ''));
     params.push(...scope.params);
@@ -174,7 +174,7 @@ router.get('/activities/reminders', requirePermission('activity:view'), (req, re
   const conditions = ['t.is_deleted = 0', 't.follow_up_time IS NOT NULL', 'substr(t.follow_up_time, 1, 10) <= ?'];
   const params = [todayStr];
 
-  const scope = dataScope.scopeFragment(req.user, 'activity');
+  const scope = dataScope.scopeFragment(req.user, 'activity', 't.created_by');
   if (scope.sql) {
     conditions.push(scope.sql.replace(/^ AND /, ''));
     params.push(...scope.params);

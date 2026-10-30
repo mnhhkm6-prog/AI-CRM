@@ -40,12 +40,13 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150" align="center" fixed="right">
+            <el-table-column label="操作" width="200" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="canUpdate" link type="primary" @click="openEditMaster(row)">编辑</el-button>
                 <el-button v-if="canUpdate" link :type="row.is_enabled ? 'danger' : 'primary'" @click="toggleMaster(row)">
                   {{ row.is_enabled ? '停用' : '启用' }}
                 </el-button>
+                <el-button v-if="canDelete" link type="danger" @click="removeMaster(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -326,6 +327,13 @@ async function toggleMaster(row: any) {
 
 function goOpportunity(row: any) {
   router.push(`/opportunities/${row.opportunity_id}`)
+}
+
+async function removeMaster(row: any) {
+  await ElMessageBox.confirm(`确认删除竞品主数据「${row.name}」？已被商机引用时无法删除。`, '删除确认', { type: 'warning' })
+  await api.deleteCompetitorMaster(row.id)
+  ElMessage.success('已删除')
+  await loadMasters()
 }
 
 async function removeRecord(row: any) {

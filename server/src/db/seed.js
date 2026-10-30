@@ -47,7 +47,7 @@ const ROLE_DEFS = [
       'competitor:view', 'competitor:create', 'contract:view', 'contract:create',
       'file:upload', 'file:view', 'sea:view', 'report:view', 'approval:view',
     ],
-    scopes: { customer: 'all', lead: 'all', opportunity: 'all', activity: 'all', proposal: 'all', quotation: 'all', contract: 'all' },
+    scopes: { customer: 'all', lead: 'all', opportunity: 'all', activity: 'self', proposal: 'all', quotation: 'all', contract: 'all' },
   },
   {
     code: 'presales',
@@ -59,7 +59,7 @@ const ROLE_DEFS = [
       'quotation:view', 'quotation:create', 'quotation:update',
       'competitor:view', 'competitor:create', 'file:upload', 'file:view', 'approval:view',
     ],
-    scopes: { customer: 'custom', opportunity: 'custom', activity: 'custom', proposal: 'self', quotation: 'self' },
+    scopes: { customer: 'custom', opportunity: 'custom', activity: 'self', proposal: 'self', quotation: 'self' },
   },
   {
     code: 'ecosystem',
@@ -69,7 +69,7 @@ const ROLE_DEFS = [
       'customer:view', 'contact:view', 'opportunity:view', 'activity:view', 'activity:create',
       'competitor:view', 'file:view', 'file:upload', 'approval:view',
     ],
-    scopes: { customer: 'custom', opportunity: 'custom', activity: 'custom' },
+    scopes: { customer: 'custom', opportunity: 'custom', activity: 'self' },
   },
   {
     code: 'procurement',
@@ -89,7 +89,7 @@ const ROLE_DEFS = [
       'customer:view', 'customer:update', 'customer:delete', 'contact:view',
       'lead:view', 'lead:assign', 'lead:recycle', 'lead:convert',
       'opportunity:view', 'opportunity:update', 'opportunity:rollback', 'opportunity:create',
-      'activity:view', 'proposal:view', 'quotation:view', 'competitor:view', 'contract:view',
+      'activity:view', 'activity:delete', 'proposal:view', 'quotation:view', 'competitor:view', 'contract:view',
       'file:view', 'sea:view', 'sea:pickup', 'sea:assign', 'sea:manage',
       'alert:view', 'alert:manage', 'loss:view', 'loss:update', 'loss:approve',
       'report:view', 'report:export', 'view:view', 'view:manage', 'report_template:view', 'user:view',
@@ -308,6 +308,45 @@ function seedRoles() {
       if (!boundPerm) insPerm.run(newId(), role.id, code, 'function', null, null, null, t, t);
     });
   });
+
+  // 行为记录删除为新增能力：仅补齐缺失的 activity:delete，不影响既有权限调整
+  ROLE_DEFS.forEach((r) => {
+    if (!r.perms.includes('activity:delete')) return;
+    const role = db.prepare('SELECT * FROM roles WHERE role_code = ?').get(r.code);
+    const boundPerm = db
+      .prepare('SELECT id FROM role_permissions WHERE role_id = ? AND permission_code = ?')
+      .get(role.id, 'activity:delete');
+    if (!boundPerm) insPerm.run(newId(), role.id, 'activity:delete', 'function', null, null, null, t, t);
+  });
+
+  // 行为记录可见性一次性修正（v1）：普通角色仅可见本人记录，管理者可见全部
+  const visibilityDone = db
+    .prepare("SELECT id FROM system_configs WHERE config_key = 'activity_visibility_scope_v1'")
+    .get();
+  if (!visibilityDone) {
+    const insScope = db.prepare(
+      `INSERT INTO role_permissions (id, role_id, permission_code, permission_type, data_scope, resource_type, scope_config_json, is_enabled, created_at, updated_at)
+       VALUES (?, ?, 'data_scope:activity', 'data', 'self', 'activity', NULL, 1, ?, ?)`
+    );
+    ['sales', 'support', 'presales', 'ecosystem'].forEach((code) => {
+      const role = db.prepare('SELECT id FROM roles WHERE role_code = ?').get(code);
+      if (!role) return;
+      const bound = db
+        .prepare("SELECT id FROM role_permissions WHERE role_id = ? AND permission_code = 'data_scope:activity'")
+        .get(role.id);
+      if (bound) {
+        db.prepare(
+          "UPDATE role_permissions SET data_scope = 'self', scope_config_json = NULL, updated_at = ? WHERE id = ?"
+        ).run(t, bound.id);
+      } else {
+        insScope.run(newId(), role.id, t, t);
+      }
+    });
+    db.prepare(
+      `INSERT INTO system_configs (id, config_key, config_value, config_group, value_type, description, created_at, updated_at)
+       VALUES (?, 'activity_visibility_scope_v1', 'done', 'system', 'string', '行为记录可见性修正标记', ?, ?)`
+    ).run(newId(), t, t);
+  }
 }
 
 /** 预置审批流（仅在从未配置过任何流程时写入，避免删掉后每次启动重建） */

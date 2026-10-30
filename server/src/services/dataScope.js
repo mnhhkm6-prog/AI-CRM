@@ -40,7 +40,17 @@ function scopeFragment(user, resource, ownerColumn) {
   const scope = scopeOf(user, resource);
 
   if (scope === 'all') return { sql: '', params: [] };
-  if (scope === 'self') return { sql: ` AND ${col} = ?`, params: [user.id] };
+  if (scope === 'self') {
+    // 商机：本人负责的 + 被分享给我的（分享即可见，写操作另行校验分享权限）
+    if (resource === 'opportunity') {
+      const prefix = col.includes('.') ? `${col.split('.')[0]}.` : '';
+      return {
+        sql: ` AND (${col} = ? OR ${prefix}id IN (SELECT opportunity_id FROM opportunity_shares WHERE shared_to = ? AND is_revoked = 0))`,
+        params: [user.id, user.id],
+      };
+    }
+    return { sql: ` AND ${col} = ?`, params: [user.id] };
+  }
 
   if (scope === 'department') {
     const ids = [user.id, ...userIdsInDepartments(user.department_id ? [user.department_id] : [])];

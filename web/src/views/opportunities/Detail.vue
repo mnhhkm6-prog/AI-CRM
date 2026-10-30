@@ -189,8 +189,11 @@
                   <el-table-column label="记录时间" width="150">
                     <template #default="{ row }">{{ fmt(row.created_at) }}</template>
                   </el-table-column>
-                  <el-table-column label="操作" width="80" align="center">
+                  <el-table-column label="操作" width="140" align="center">
                     <template #default="{ row }">
+                      <el-button v-if="canCompetitorUpdate" link type="primary" size="small" @click="openCompetitorEdit(row)">
+                        编辑
+                      </el-button>
                       <el-button v-if="canCompetitorDelete" link type="danger" size="small" @click="removeCompetitor(row)">
                         删除
                       </el-button>
@@ -204,15 +207,34 @@
                 <div class="mb-12">
                   <el-button v-if="canActivityCreate" type="primary" size="small" @click="openActivity">新增行为</el-button>
                 </div>
-                <el-table :data="activities" size="small">
-                  <el-table-column label="时间" width="150">
-                    <template #default="{ row }">{{ fmt(row.activity_time) }}</template>
-                  </el-table-column>
-                  <el-table-column prop="activity_type" label="类型" width="100" />
-                  <el-table-column prop="content" label="内容" min-width="240" show-overflow-tooltip />
-                  <el-table-column prop="creator_name" label="记录人" width="100" />
-                  <template #empty><div class="empty-tip">暂无行为记录</div></template>
-                </el-table>
+                <el-timeline v-if="activities.length" class="mt-12">
+                  <el-timeline-item
+                    v-for="row in activities"
+                    :key="row.id"
+                    :timestamp="fmt(row.activity_time)"
+                    placement="top"
+                  >
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px">
+                      <el-tag size="small" effect="plain">{{ row.activity_type }}</el-tag>
+                      <span style="color: var(--el-text-color-secondary)">记录人：{{ row.creator_name || '—' }}</span>
+                      <span v-if="row.follow_up_time" style="color: var(--el-text-color-secondary)">
+                        下次跟进：{{ fmt(row.follow_up_time) }}
+                      </span>
+                      <el-button
+                        v-if="canActivityDelete"
+                        link
+                        type="danger"
+                        size="small"
+                        style="margin-left: auto"
+                        @click="removeActivity(row)"
+                      >
+                        删除
+                      </el-button>
+                    </div>
+                    <div style="white-space: pre-wrap">{{ row.content || '—' }}</div>
+                  </el-timeline-item>
+                </el-timeline>
+                <div v-else class="empty-tip">暂无行为记录</div>
                 <el-pagination
                   v-if="activityTotal > activityPageSize"
                   class="mt-12"
@@ -554,7 +576,7 @@
     </el-dialog>
 
     <!-- 新增竞争对手（M5，商机固定） -->
-    <el-dialog v-model="competitorDialog" title="新增竞争对手" width="480px" align-center @closed="resetCompetitorForm">
+    <el-dialog v-model="competitorDialog" :title="editingCompetitorId ? '编辑竞争对手' : '新增竞争对手'" width="480px" align-center @closed="resetCompetitorForm">
       <el-form label-width="100px">
         <el-form-item label="关联商机">
           <el-input :model-value="opp?.name || ''" disabled />
@@ -730,6 +752,7 @@ const proposalForm = reactive<any>({ proposal_type: 'preliminary' })
 const quotationForm = reactive<any>({ quotation_type: 'preliminary', product_type: '', amount: 0, remark: '' })
 
 const competitorDialog = ref(false)
+const editingCompetitorId = ref('')
 const competitorMasters = ref<any[]>([])
 const competitorForm = reactive<any>({ competitor_master_id: '', name: '', strengths: '', weaknesses: '' })
 
@@ -750,12 +773,14 @@ const canUpdate = computed(() => userStore.hasPerm('opportunity:update'))
 const canDelete = computed(() => userStore.hasPerm('opportunity:delete'))
 const canRollback = computed(() => userStore.isAdmin || userStore.hasPerm('opportunity:rollback'))
 const canActivityCreate = computed(() => userStore.hasPerm('activity:create'))
+const canActivityDelete = computed(() => userStore.hasPerm('activity:delete'))
 const canProposalCreate = computed(() => userStore.hasPerm('proposal:create'))
 const canProposalDelete = computed(() => userStore.hasPerm('proposal:delete'))
 const canQuotationCreate = computed(() => userStore.hasPerm('quotation:create'))
 const canQuotationDelete = computed(() => userStore.hasPerm('quotation:delete'))
 const canQuotationUpdate = computed(() => userStore.hasPerm('quotation:update'))
 const canCompetitorCreate = computed(() => userStore.hasPerm('competitor:create'))
+const canCompetitorUpdate = computed(() => userStore.hasPerm('competitor:update'))
 const canCompetitorDelete = computed(() => userStore.hasPerm('competitor:delete'))
 const canContractCreate = computed(() => userStore.hasPerm('contract:create'))
 const hasMore = computed(() => canUpdate.value || canDelete.value || canRollback.value)
@@ -929,10 +954,28 @@ function onFillFromAdvance(item: any) {
 
 async function loadActivities() {
   const res: any = await api
-    .listActivities({ opportunity_id: id.value, page: activityPage.value, page_size: activityPageSize.value })
+    .listActivities({
+      opportunity_id: id.value,
+      page: activityPage.value,
+      page_size: activityPageSize.value,
+      sort: 'activity_time',
+      order: 'desc',
+    } as any)
     .catch(() => ({ list: [], total: 0 }))
   activities.value = res.list || []
   activityTotal.value = res.total || 0
+}
+
+async function removeActivity(row: any) {
+  try {
+    await ElMessageBox.confirm('删除后该条行为记录不可恢复，确定删除吗？', '删除行为记录', { type: 'warning' })
+  } catch {
+    return
+  }
+  await api.deleteActivity(row.id)
+  ElMessage.success('行为记录已删除')
+  if (activities.value.length === 1 && activityPage.value > 1) activityPage.value -= 1
+  await loadActivities()
 }
 
 function onActivityPageChange(p: number) {
@@ -1183,16 +1226,33 @@ async function removeQuotation(row: any) {
 }
 
 // ---------------------------------------------------------------- 竞争对手（M5，商机详情内直达）
+async function ensureCompetitorMasters() {
+  if (competitorMasters.value.length) return
+  const res: any = await api.listCompetitorMasters({ page_size: 100, is_enabled: true } as any).catch(() => [])
+  competitorMasters.value = Array.isArray(res) ? res : res?.list || []
+}
+
 async function openCompetitor() {
+  editingCompetitorId.value = ''
   Object.assign(competitorForm, { competitor_master_id: '', name: '', strengths: '', weaknesses: '' })
   competitorDialog.value = true
-  if (!competitorMasters.value.length) {
-    const res = await api.listCompetitorMasters({ page_size: 100 }).catch(() => ({ list: [] }))
-    competitorMasters.value = (res as any).list || []
-  }
+  await ensureCompetitorMasters()
+}
+
+async function openCompetitorEdit(row: any) {
+  editingCompetitorId.value = row.id
+  Object.assign(competitorForm, {
+    competitor_master_id: row.competitor_master_id || '',
+    name: row.name || '',
+    strengths: row.strengths || '',
+    weaknesses: row.weaknesses || '',
+  })
+  competitorDialog.value = true
+  await ensureCompetitorMasters()
 }
 
 function resetCompetitorForm() {
+  editingCompetitorId.value = ''
   Object.assign(competitorForm, { competitor_master_id: '', name: '', strengths: '', weaknesses: '' })
 }
 
@@ -1211,14 +1271,20 @@ async function submitCompetitor() {
     return
   }
   submitting.value = true
+  const payload = {
+    name: competitorForm.name.trim(),
+    competitor_master_id: competitorForm.competitor_master_id || undefined,
+    strengths: competitorForm.strengths || undefined,
+    weaknesses: competitorForm.weaknesses || undefined,
+  }
   try {
-    await api.createCompetitor(id.value, {
-      name: competitorForm.name.trim(),
-      competitor_master_id: competitorForm.competitor_master_id || undefined,
-      strengths: competitorForm.strengths || undefined,
-      weaknesses: competitorForm.weaknesses || undefined,
-    })
-    ElMessage.success('竞争对手已新增')
+    if (editingCompetitorId.value) {
+      await api.updateCompetitor(editingCompetitorId.value, payload)
+      ElMessage.success('竞争对手已更新')
+    } else {
+      await api.createCompetitor(id.value, payload)
+      ElMessage.success('竞争对手已新增')
+    }
     competitorDialog.value = false
     await load()
   } finally {

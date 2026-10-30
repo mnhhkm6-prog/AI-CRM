@@ -482,6 +482,35 @@ router.post('/opportunities/:id/competitors', requirePermission('competitor:crea
   created(res, db.prepare('SELECT * FROM competitors WHERE id = ?').get(id));
 });
 
+/** 编辑商机竞争对手：仅更新当前商机内的快照，不回写竞品主数据 */
+router.put('/competitors/:id', requirePermission('competitor:update'), (req, res) => {
+  const row = db.prepare('SELECT * FROM competitors WHERE id = ? AND is_deleted = 0').get(req.params.id);
+  if (!row) throw notFound('竞争对手记录不存在');
+  requireOpportunity(req, row.opportunity_id);
+  const body = bodyOf(req);
+  const name = body.name === undefined ? row.name : requireString(body, 'name', '竞争对手名称');
+  const strengths = body.strengths === undefined ? row.strengths : optional(body, 'strengths');
+  const weaknesses = body.weaknesses === undefined ? row.weaknesses : optional(body, 'weaknesses');
+  let masterId = row.competitor_master_id;
+  if (body.competitor_master_id !== undefined) {
+    masterId = body.competitor_master_id || null;
+    if (masterId) {
+      const master = db.prepare('SELECT id FROM competitor_masters WHERE id = ? AND is_deleted = 0').get(masterId);
+      if (!master) throw badRequest('竞品主数据不存在');
+    }
+  }
+  db.prepare(
+    'UPDATE competitors SET name = ?, strengths = ?, weaknesses = ?, competitor_master_id = ?, updated_at = ? WHERE id = ?'
+  ).run(name, strengths, weaknesses, masterId, now(), row.id);
+  logOperation(req, {
+    action: 'UPDATE_COMPETITOR',
+    targetType: 'Competitor',
+    targetId: row.id,
+    detail: { opportunity_id: row.opportunity_id, name },
+  });
+  ok(res, db.prepare('SELECT * FROM competitors WHERE id = ?').get(row.id));
+});
+
 router.delete('/competitors/:id', requirePermission('competitor:delete'), (req, res) => {
   const row = db.prepare('SELECT * FROM competitors WHERE id = ? AND is_deleted = 0').get(req.params.id);
   if (!row) throw notFound('竞争对手记录不存在');
@@ -543,6 +572,24 @@ router.post('/competitor-masters/:id/disable', requirePermission('competitor:upd
   db.prepare('UPDATE competitor_masters SET is_enabled = 0, updated_at = ? WHERE id = ?').run(now(), row.id);
   logOperation(req, { action: 'DISABLE_COMPETITOR_MASTER', targetType: 'CompetitorMaster', targetId: row.id });
   ok(res, db.prepare('SELECT * FROM competitor_masters WHERE id = ?').get(row.id));
+});
+
+/** 删除竞品主数据：已被商机竞争对手引用时不允许删除，改用停用 */
+router.delete('/competitor-masters/:id', requirePermission('competitor:delete'), (req, res) => {
+  const row = db.prepare('SELECT * FROM competitor_masters WHERE id = ? AND is_deleted = 0').get(req.params.id);
+  if (!row) throw notFound('竞争对手主数据不存在');
+  const used = db
+    .prepare('SELECT COUNT(*) AS c FROM competitors WHERE competitor_master_id = ? AND is_deleted = 0')
+    .get(row.id).c;
+  if (used > 0) throw badRequest(`该竞品主数据已被 ${used} 条商机竞争对手记录引用，请改为停用`);
+  db.prepare('UPDATE competitor_masters SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
+  logOperation(req, {
+    action: 'DELETE_COMPETITOR_MASTER',
+    targetType: 'CompetitorMaster',
+    targetId: row.id,
+    detail: { name: row.name },
+  });
+  ok(res, { id: row.id });
 });
 
 // ---------------------------------------------------------------- 合同

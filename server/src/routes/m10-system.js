@@ -100,6 +100,14 @@ router.put('/auth/password', (req, res) => {
 });
 
 // ---------------------------------------------------------------- 用户管理
+// 负责人/协作人下拉：登录即可访问，仅返回启用用户的精简信息
+router.get('/users/options', (req, res) => {
+  const list = db
+    .prepare("SELECT id, name, username FROM users WHERE is_deleted = 0 AND status = 'enabled' ORDER BY name LIMIT 500")
+    .all();
+  ok(res, list);
+});
+
 router.get('/users', requirePermission('user:view'), (req, res) => {
   const paging = getPaging(req);
   const conditions = ['u.is_deleted = 0'];
