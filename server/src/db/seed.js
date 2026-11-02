@@ -26,7 +26,7 @@ const ROLE_DEFS = [
       'opportunity:view', 'opportunity:create', 'opportunity:update',
       'activity:view', 'activity:create', 'activity:update',
       'proposal:view', 'proposal:create', 'quotation:view', 'quotation:create',
-      'competitor:view', 'competitor:create', 'contract:view', 'contract:create',
+      'competitor:view', 'competitor:create', 'contract:view',
       'file:upload', 'file:view', 'sea:view', 'sea:pickup',
       'alert:view', // P22 停滞预警列表（仅本人数据，界面设计文档 2.3 默认菜单可见性）
       'report:view', // 支撑 M9-R4 销售个人报表
@@ -44,7 +44,7 @@ const ROLE_DEFS = [
       'lead:view', 'opportunity:view', 'opportunity:update',
       'activity:view', 'activity:create', 'activity:update',
       'proposal:view', 'proposal:create', 'quotation:view', 'quotation:create',
-      'competitor:view', 'competitor:create', 'contract:view', 'contract:create',
+      'competitor:view', 'competitor:create', 'contract:view', 'contract:create', 'contract:delete',
       'file:upload', 'file:view', 'sea:view', 'report:view', 'approval:view',
     ],
     scopes: { customer: 'all', lead: 'all', opportunity: 'all', activity: 'self', proposal: 'all', quotation: 'all', contract: 'all' },
@@ -89,7 +89,7 @@ const ROLE_DEFS = [
       'customer:view', 'customer:update', 'customer:delete', 'contact:view',
       'lead:view', 'lead:assign', 'lead:recycle', 'lead:convert',
       'opportunity:view', 'opportunity:update', 'opportunity:rollback', 'opportunity:create',
-      'activity:view', 'activity:delete', 'proposal:view', 'quotation:view', 'competitor:view', 'contract:view',
+      'activity:view', 'activity:delete', 'proposal:view', 'quotation:view', 'competitor:view', 'contract:view', 'contract:delete',
       'file:view', 'sea:view', 'sea:pickup', 'sea:assign', 'sea:manage',
       'alert:view', 'alert:manage', 'loss:view', 'loss:update', 'loss:approve',
       'report:view', 'report:export', 'view:view', 'view:manage', 'report_template:view', 'user:view',
@@ -347,15 +347,62 @@ function seedRoles() {
        VALUES (?, 'activity_visibility_scope_v1', 'done', 'system', 'string', '行为记录可见性修正标记', ?, ?)`
     ).run(newId(), t, t);
   }
+
+  // 合同删除一次性授权（v1）：默认授予管理层与业务支撑，之后以界面配置为准
+  const contractDeleteGranted = db
+    .prepare("SELECT id FROM system_configs WHERE config_key = 'contract_delete_grant_v1'")
+    .get();
+  if (!contractDeleteGranted) {
+    ['support', 'management'].forEach((code) => {
+      const role = db.prepare('SELECT id FROM roles WHERE role_code = ?').get(code);
+      if (!role) return;
+      const boundPerm = db
+        .prepare('SELECT id FROM role_permissions WHERE role_id = ? AND permission_code = ?')
+        .get(role.id, 'contract:delete');
+      if (!boundPerm) insPerm.run(newId(), role.id, 'contract:delete', 'function', null, null, null, t, t);
+    });
+    db.prepare(
+      `INSERT INTO system_configs (id, config_key, config_value, config_group, value_type, description, created_at, updated_at)
+       VALUES (?, 'contract_delete_grant_v1', 'done', 'system', 'string', '合同删除默认授权标记', ?, ?)`
+    ).run(newId(), t, t);
+  }
+
+  // 合同新增权限回收（v1）：销售不再默认具备合同新增，之后以界面配置为准
+  const salesContractCreateRevoked = db
+    .prepare("SELECT id FROM system_configs WHERE config_key = 'sales_contract_create_revoke_v1'")
+    .get();
+  if (!salesContractCreateRevoked) {
+    const salesRole = db.prepare('SELECT id FROM roles WHERE role_code = ?').get('sales');
+    if (salesRole) {
+      db.prepare('DELETE FROM role_permissions WHERE role_id = ? AND permission_code = ?').run(salesRole.id, 'contract:create');
+    }
+    db.prepare(
+      `INSERT INTO system_configs (id, config_key, config_value, config_group, value_type, description, created_at, updated_at)
+       VALUES (?, 'sales_contract_create_revoke_v1', 'done', 'system', 'string', '销售合同新增权限回收标记', ?, ?)`
+    ).run(newId(), t, t);
+  }
 }
 
 /** 预置审批流（仅在从未配置过任何流程时写入，避免删掉后每次启动重建） */
 function seedApprovalFlows() {
+  // 合同审批默认关闭（v1）：合同由业务支撑发起，默认无需审批；如需审批可在「审批流配置」中手动启用
+  const contractApprovalOff = db
+    .prepare("SELECT id FROM system_configs WHERE config_key = 'contract_approval_off_v1'")
+    .get();
+  if (!contractApprovalOff) {
+    const t = now();
+    db.prepare("UPDATE approval_flows SET is_enabled = 0, updated_at = ? WHERE biz_type = 'contract' AND is_deleted = 0").run(t);
+    db.prepare(
+      `INSERT INTO system_configs (id, config_key, config_value, config_group, value_type, description, created_at, updated_at)
+       VALUES (?, 'contract_approval_off_v1', 'done', 'system', 'string', '合同审批默认关闭标记', ?, ?)`
+    ).run(newId(), t, t);
+  }
+
   if (db.prepare('SELECT COUNT(*) c FROM approval_flows').get().c > 0) return;
   const t = now();
   const insFlow = db.prepare(
     `INSERT INTO approval_flows (id, name, biz_type, description, priority, is_enabled, conditions_json, version, created_by, is_deleted, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 1, ?, 1, NULL, 0, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, ?, ?)`
   );
   const insNode = db.prepare(
     `INSERT INTO approval_flow_nodes (id, flow_id, node_name, sort_order, node_type, approve_mode, approver_type, approver_values, timeout_hours, created_at, updated_at)
@@ -365,14 +412,15 @@ function seedApprovalFlows() {
   const quotationFlowId = newId();
   insFlow.run(
     quotationFlowId, '报价折扣审批', 'quotation', '报价低于商机金额 9 折时，需管理层审批',
-    10, JSON.stringify([{ field: 'discount_rate', op: '<', value: 0.9 }]), t, t
+    10, 1, JSON.stringify([{ field: 'discount_rate', op: '<', value: 0.9 }]), t, t
   );
   insNode.run(newId(), quotationFlowId, '管理层审批', 10, 'any', 'role', JSON.stringify(['management']), t, t);
 
+  // 合同由业务支撑发起，默认停用审批；如需审批，在「审批流配置」中启用并调整阈值
   const contractFlowId = newId();
   insFlow.run(
-    contractFlowId, '大额合同审批', 'contract', '合同金额达到 50 万时，需管理层审批',
-    10, JSON.stringify([{ field: 'amount', op: '>=', value: 500000 }]), t, t
+    contractFlowId, '大额合同审批', 'contract', '默认停用。启用后合同金额达到 50 万时需管理层审批',
+    10, 0, JSON.stringify([{ field: 'amount', op: '>=', value: 500000 }]), t, t
   );
   insNode.run(newId(), contractFlowId, '管理层审批', 10, 'any', 'role', JSON.stringify(['management']), t, t);
 }

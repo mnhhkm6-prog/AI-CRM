@@ -630,7 +630,7 @@ router.get('/contracts', requirePermission('contract:view'), (req, res) => {
   const conditions = ['t.is_deleted = 0'];
   const params = [];
 
-  const frag = dataScope.scopeFragment(req.user, 'contract');
+  const frag = dataScope.scopeFragment(req.user, 'contract', 't.created_by');
   if (frag.sql) {
     conditions.push(frag.sql.replace(/^ AND /, ''));
     params.push(...frag.params);
@@ -713,6 +713,7 @@ router.delete('/contracts/:id', requirePermission('contract:delete'), (req, res)
   const row = dataScope.findScoped('contract', 'contracts', req.params.id, req.user);
   if (!row) throw notFound('合同不存在或无权访问');
   if (row.approval_status === 'pending') throw badRequest('合同审批中，暂不可删除');
+  if (row.status === 'archived') throw badRequest('合同已归档，不可删除');
   db.prepare('UPDATE contracts SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
   logOperation(req, { action: 'DELETE_CONTRACT', targetType: 'Contract', targetId: row.id, detail: { contract_no: row.contract_no } });
   ok(res, { id: row.id, deleted: true });
