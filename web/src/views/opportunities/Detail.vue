@@ -273,7 +273,7 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="200" align="center">
+                  <el-table-column label="操作" width="240" align="center">
                     <template #default="{ row }">
                       <el-button v-if="row.file_url" link type="primary" size="small" @click="preview(row.file_url)">预览</el-button>
                       <el-button v-if="row.file_storage_id" link type="primary" size="small" @click="downloadAsset(row)">下载</el-button>
@@ -284,6 +284,15 @@
                         size="small"
                         @click="resubmitBiz('contract', row)"
                       >重新提交</el-button>
+                      <el-button
+                        v-if="canContractDelete && row.status !== 'archived'"
+                        link
+                        type="danger"
+                        size="small"
+                        :disabled="row.approval_status === 'pending'"
+                        :title="row.approval_status === 'pending' ? '审批中不可删除' : ''"
+                        @click="removeContract(row)"
+                      >删除</el-button>
                     </template>
                   </el-table-column>
                   <template #empty><div class="empty-tip">暂无合同</div></template>
@@ -291,23 +300,60 @@
               </el-tab-pane>
 
               <el-tab-pane label="商机动态" name="history">
-                <el-timeline v-if="history.length">
-                  <el-timeline-item
-                    v-for="h in history"
-                    :key="h.id"
-                    :timestamp="fmt(h.time)"
-                    placement="top"
-                    :type="timelineType(h.category)"
+                <div class="history-toolbar">
+                  <el-select v-model="historyRangeKey" size="small" style="width: 112px">
+                    <el-option label="全部时间" value="" />
+                    <el-option label="近 7 天" value="7" />
+                    <el-option label="近 30 天" value="30" />
+                    <el-option label="近 90 天" value="90" />
+                    <el-option label="自定义区间" value="custom" />
+                  </el-select>
+                  <el-date-picker
+                    v-if="historyRangeKey === 'custom'"
+                    v-model="historyCustomRange"
+                    type="daterange"
+                    value-format="YYYY-MM-DD"
+                    size="small"
+                    range-separator="~"
+                    start-placeholder="开始"
+                    end-placeholder="结束"
+                    style="width: 224px"
+                  />
+                  <el-select v-model="historyCategory" placeholder="全部类型" clearable size="small" style="width: 118px">
+                    <el-option v-for="(meta, code) in TIMELINE_META" :key="code" :label="meta.label" :value="code" />
+                  </el-select>
+                  <el-select
+                    v-model="historyActor"
+                    placeholder="全部操作人"
+                    clearable
+                    filterable
+                    size="small"
+                    style="width: 132px"
                   >
-                    <div class="timeline-item__title">
-                      <el-tag size="small" effect="plain" :type="timelineType(h.category)">{{ timelineCategory(h.category) }}</el-tag>
-                      {{ h.title }}
-                    </div>
-                    <div v-if="h.description" class="timeline-item__meta">{{ h.description }}</div>
-                    <div class="timeline-item__meta">{{ h.actor }}</div>
-                  </el-timeline-item>
-                </el-timeline>
-                <div v-else class="empty-tip">暂无动态</div>
+                    <el-option v-for="a in historyActors" :key="a" :label="a" :value="a" />
+                  </el-select>
+                  <el-button size="small" @click="resetHistoryFilter">重置</el-button>
+                  <span class="text-muted">共 {{ filteredHistory.length }} 条</span>
+                </div>
+                <div class="history-scroll">
+                  <el-timeline v-if="filteredHistory.length">
+                    <el-timeline-item
+                      v-for="h in filteredHistory"
+                      :key="h.id"
+                      :timestamp="fmt(h.time)"
+                      placement="top"
+                      :type="timelineType(h.category)"
+                    >
+                      <div class="timeline-item__title">
+                        <el-tag size="small" effect="plain" :type="timelineType(h.category)">{{ timelineCategory(h.category) }}</el-tag>
+                        {{ h.title }}
+                      </div>
+                      <div v-if="h.description" class="timeline-item__meta">{{ h.description }}</div>
+                      <div v-if="h.actor && h.actor !== '—'" class="timeline-item__meta">操作人：{{ h.actor }}</div>
+                    </el-timeline-item>
+                  </el-timeline>
+                  <div v-else class="empty-tip">暂无符合筛选条件的动态</div>
+                </div>
               </el-tab-pane>
             </el-tabs>
           </div>
@@ -716,6 +762,45 @@ const activityPage = ref(1)
 const activityPageSize = ref(20)
 const customFieldDefs = ref<any[]>([])
 const history = ref<any[]>([])
+const historyRangeKey = ref('')
+const historyCustomRange = ref<[string, string] | null>(null)
+const historyCategory = ref('')
+const historyActor = ref('')
+const historyActors = computed(() => {
+  const names = new Set<string>()
+  ;(history.value || []).forEach((h: any) => {
+    if (h.actor && h.actor !== '—') names.add(h.actor)
+  })
+  return Array.from(names)
+})
+const filteredHistory = computed(() => {
+  const days = Number(historyRangeKey.value)
+  let minDay = ''
+  let maxDay = ''
+  if (days > 0) {
+    const from = new Date()
+    from.setDate(from.getDate() - (days - 1))
+    const pad = (n: number) => String(n).padStart(2, '0')
+    minDay = `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(from.getDate())}`
+  } else if (historyRangeKey.value === 'custom' && historyCustomRange.value?.length === 2) {
+    ;[minDay, maxDay] = historyCustomRange.value
+  }
+  return (history.value || []).filter((h: any) => {
+    if (historyCategory.value && h.category !== historyCategory.value) return false
+    if (historyActor.value && h.actor !== historyActor.value) return false
+    const day = String(h.time || '').slice(0, 10)
+    if (minDay && day < minDay) return false
+    if (maxDay && day > maxDay) return false
+    return true
+  })
+})
+
+function resetHistoryFilter() {
+  historyRangeKey.value = ''
+  historyCustomRange.value = null
+  historyCategory.value = ''
+  historyActor.value = ''
+}
 const shares = ref<any[]>([])
 const owners = ref<Option[]>([])
 const stages = ref<any[]>([])
@@ -783,6 +868,7 @@ const canCompetitorCreate = computed(() => userStore.hasPerm('competitor:create'
 const canCompetitorUpdate = computed(() => userStore.hasPerm('competitor:update'))
 const canCompetitorDelete = computed(() => userStore.hasPerm('competitor:delete'))
 const canContractCreate = computed(() => userStore.hasPerm('contract:create'))
+const canContractDelete = computed(() => userStore.hasPerm('contract:delete'))
 const hasMore = computed(() => canUpdate.value || canDelete.value || canRollback.value)
 
 const missingCount = computed(() => (opp.value?.fixed_actions?.missing || []).length)
@@ -1221,6 +1307,17 @@ async function removeProposal(row: any) {
 async function removeQuotation(row: any) {
   await ElMessageBox.confirm(`确认删除报价「${row.file_name || row.product_type || '未命名'}」？`, '删除确认', { type: 'warning' })
   await api.deleteQuotation(row.id)
+  ElMessage.success('已删除')
+  await load()
+}
+
+async function removeContract(row: any) {
+  await ElMessageBox.confirm(
+    `确认删除合同「${row.contract_no || row.contract_name || '未命名'}」？删除后合同类固定动作会重新变为未完成，附件文件将保留。`,
+    '删除确认',
+    { type: 'warning' },
+  )
+  await api.deleteContract(row.id)
   ElMessage.success('已删除')
   await load()
 }
@@ -1688,5 +1785,25 @@ onMounted(async () => {
 
 .text-alert-3 {
   color: var(--crm-alert-3);
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* 让宽度按设定值固定，不被 flex 压缩 */
+.history-toolbar > * {
+  flex: none;
+}
+
+.history-scroll {
+  max-height: calc(100vh - 380px);
+  min-height: 240px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 </style>

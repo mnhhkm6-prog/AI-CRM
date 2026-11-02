@@ -664,7 +664,7 @@ function stageProgress(opportunityId) {
 }
 
 const APPROVAL_TEXT = {
-  none: '未提交审批',
+  none: '无需审批',
   pending: '审批中',
   approved: '审批通过',
   rejected: '审批驳回',
@@ -689,12 +689,57 @@ const SEA_SOURCE_LABEL = {
 
 const moneyText = (v) => `¥${Number(v || 0).toLocaleString('zh-CN')}`;
 
+/** 协作权限码 → 展示文案 */
+const SHARE_PERMISSION_LABEL = {
+  view: '查看商机',
+  edit: '编辑商机',
+  advance: '推进阶段',
+  activity_create: '填写行为记录',
+  view_proposal: '查看方案与报价',
+  view_contract: '查看合同',
+  owner: '变更负责人',
+};
+
+const parseJsonSafe = (value, fallback) => {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return fallback;
+  }
+};
+
+/**
+ * 动态时间来源混杂（UTC ISO / 本地 YYYY-MM-DD HH:mm / 纯日期），
+ * 统一解析成本地展示文本 + 毫秒时间戳，供正确排序
+ */
+function normalizeTime(value) {
+  if (!value) return null;
+  const raw = String(value);
+  let date;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    date = new Date(`${raw}T00:00:00`);
+  } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw) && !/(Z|[+-]\d{2}:?\d{2})$/.test(raw)) {
+    date = new Date(raw.replace(' ', 'T'));
+  } else {
+    date = new Date(raw);
+  }
+  if (Number.isNaN(date.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    ts: date.getTime(),
+    text: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+}
+
 /** 商机动态：合并阶段变更、行为、方案报价合同、竞对、协作、公海流转、审批与失效申请 */
 function timeline(opportunityId) {
   getOpportunityOr404(opportunityId);
   const events = [];
   const add = (e) => {
-    if (e && e.time) events.push(e);
+    const t = normalizeTime(e && e.time);
+    if (!t) return;
+    events.push({ ...e, time: t.text, ts: t.ts });
   };
 
   db.prepare(
@@ -703,15 +748,15 @@ function timeline(opportunityId) {
      WHERE h.opportunity_id = ?`
   ).all(opportunityId).forEach((h) => {
     const label = STAGE_ACTION_LABEL[h.action_type] || '阶段变更';
+    const route = h.from_stage_name && h.to_stage_name
+      ? `${h.from_stage_name} → ${h.to_stage_name}`
+      : (h.to_stage_name ? `阶段：${h.to_stage_name}` : '');
     add({
       id: `stage-${h.id}`,
       time: h.created_at,
       category: 'stage',
-      title: `${label} · ${h.to_stage_name || '—'}`,
-      description: [
-        h.from_stage_name ? `${h.from_stage_name} → ${h.to_stage_name}` : '',
-        h.reason,
-      ].filter(Boolean).join(' · '),
+      title: label,
+      description: [route, h.reason ? `原因：${h.reason}` : ''].filter(Boolean).join(' · '),
       actor: h.actor || '系统',
     });
   });
@@ -726,7 +771,10 @@ function timeline(opportunityId) {
       time: a.activity_time || a.created_at,
       category: 'activity',
       title: `行为记录 · ${a.activity_type || '跟进'}`,
-      description: a.content || '',
+      description: [
+        a.content ? `内容：${a.content}` : '内容：无备注',
+        a.follow_up_time ? `下次跟进：${String(a.follow_up_time).slice(0, 10)}` : '',
+      ].filter(Boolean).join(' · '),
       actor: a.actor || '—',
     });
   });
@@ -740,8 +788,8 @@ function timeline(opportunityId) {
       id: `proposal-${p.id}`,
       time: p.created_at,
       category: 'proposal',
-      title: `上传${p.proposal_type === 'formal' ? '正式' : '初步'}方案${p.version ? ` · ${p.version}` : ''}`,
-      description: p.file_name || '',
+      title: `上传${p.proposal_type === 'formal' ? '正式' : '初步'}方案`,
+      description: [p.file_name, p.version ? `版本：${p.version}` : ''].filter(Boolean).join(' · '),
       actor: p.actor || '—',
     });
   });
@@ -762,8 +810,9 @@ function timeline(opportunityId) {
   });
 
   db.prepare(
-    `SELECT c.*, u.name AS actor FROM contracts c
+    `SELECT c.*, u.name AS actor, sb.name AS signed_by_name FROM contracts c
      LEFT JOIN users u ON u.id = c.created_by
+     LEFT JOIN users sb ON sb.id = c.signed_by
      WHERE c.opportunity_id = ? AND c.is_deleted = 0`
   ).all(opportunityId).forEach((c) => {
     add({
@@ -772,8 +821,10 @@ function timeline(opportunityId) {
       category: 'contract',
       title: `新增合同 · ${c.contract_no}`,
       description: [
-        moneyText(c.amount),
-        c.signed_date ? `签订 ${c.signed_date}` : '',
+        c.contract_name ? `合同名称：${c.contract_name}` : '',
+        `合同金额：${moneyText(c.amount)}`,
+        c.signed_date ? `签订日期：${c.signed_date}` : '',
+        c.signed_by_name || c.signed_by ? `签订人：${c.signed_by_name || c.signed_by}` : '',
         APPROVAL_TEXT[c.approval_status] || '',
       ].filter(Boolean).join(' · '),
       actor: c.actor || '—',
@@ -790,7 +841,10 @@ function timeline(opportunityId) {
       time: cm.created_at,
       category: 'competitor',
       title: `添加竞争对手 · ${cm.name}`,
-      description: cm.strengths || '',
+      description: [
+        cm.strengths ? `优势：${cm.strengths}` : '',
+        cm.weaknesses ? `劣势：${cm.weaknesses}` : '',
+      ].filter(Boolean).join(' · '),
       actor: cm.actor || '—',
     });
   });
@@ -799,21 +853,37 @@ function timeline(opportunityId) {
     `SELECT s.*, u.name AS target_name, su.name AS actor FROM opportunity_shares s
      LEFT JOIN users u ON u.id = s.shared_to
      LEFT JOIN users su ON su.id = s.shared_by
-     WHERE s.opportunity_id = ? AND s.is_revoked = 0`
+     WHERE s.opportunity_id = ?`
   ).all(opportunityId).forEach((s) => {
+    const perms = parseJsonSafe(s.permissions, []);
+    const permText = Array.isArray(perms) && perms.length
+      ? perms.map((p) => SHARE_PERMISSION_LABEL[p] || p).join('、')
+      : '查看商机';
     add({
       id: `share-${s.id}`,
       time: s.created_at,
       category: 'share',
-      title: `共享协作 · ${s.target_name || '—'}`,
-      description: '已共享商机查看/协作权限',
+      title: `共享商机给 ${s.target_name || '—'}`,
+      description: `授权：${permText}`,
       actor: s.actor || '—',
     });
+    if (s.is_revoked && s.revoked_at) {
+      add({
+        id: `share-revoke-${s.id}`,
+        time: s.revoked_at,
+        category: 'share',
+        title: `取消共享 · ${s.target_name || '—'}`,
+        description: '该协作成员已失去商机访问权限',
+        actor: s.actor || '—',
+      });
+    }
   });
 
   db.prepare(
-    `SELECT l.*, u.name AS actor FROM loss_records l
+    `SELECT l.*, u.name AS actor, au.name AS approver
+     FROM loss_records l
      LEFT JOIN users u ON u.id = l.submitted_by
+     LEFT JOIN users au ON au.id = l.approved_by
      WHERE l.opportunity_id = ?`
   ).all(opportunityId).forEach((l) => {
     if (!l.approved_at) return;
@@ -822,8 +892,13 @@ function timeline(opportunityId) {
       time: l.approved_at,
       category: 'loss',
       title: `失效申请${l.approval_status === 'approved' ? '通过' : l.approval_status === 'rejected' ? '驳回' : '处理中'}`,
-      description: l.approve_comment || l.loss_reason || '',
-      actor: l.actor || '—',
+      description: [
+        l.actor ? `申请人：${l.actor}` : '',
+        l.loss_reason ? `失效原因：${l.loss_reason}` : '',
+        l.competitor_name ? `竞争对手：${l.competitor_name}` : '',
+        l.approve_comment ? `审批意见：${l.approve_comment}` : '',
+      ].filter(Boolean).join(' · '),
+      actor: l.approver || l.actor || '—',
     });
   });
 
@@ -842,19 +917,20 @@ function timeline(opportunityId) {
       category: 'sea',
       title: `转入公海 · ${sourceLabel}`,
       description: [
-        s.reason,
+        s.reason ? `原因：${s.reason}` : '',
         s.prev_owner_name ? `原负责人：${s.prev_owner_name}` : '',
       ].filter(Boolean).join(' · '),
       actor: s.actor || '系统',
     });
     if (s.claimed_at) {
+      const assigned = s.status === 'assigned';
       add({
         id: `sea-out-${s.id}`,
         time: s.claimed_at,
         category: 'sea',
-        title: s.status === 'assigned' ? '从公海分配' : '从公海领取',
-        description: s.claim_name ? `负责人：${s.claim_name}` : '',
-        actor: s.claim_name || '—',
+        title: assigned ? `从公海分配给 ${s.claim_name || '—'}` : '从公海领取',
+        description: assigned ? '由主管分配' : '',
+        actor: assigned ? '—' : (s.claim_name || '—'),
       });
     }
   });
@@ -869,7 +945,10 @@ function timeline(opportunityId) {
       time: se.created_at,
       category: 'stagnation',
       title: '提交停滞延期申请',
-      description: [se.reason, se.expected_date ? `预计 ${se.expected_date}` : ''].filter(Boolean).join(' · '),
+      description: [
+        se.reason ? `原因：${se.reason}` : '',
+        se.expected_date ? `预计完成：${se.expected_date}` : '',
+      ].filter(Boolean).join(' · '),
       actor: se.actor || '—',
     });
     if (se.approved_at) {
@@ -906,13 +985,13 @@ function timeline(opportunityId) {
         time: ai.completed_at,
         category: 'approval',
         title: `${bizLabel}审批${ai.status === 'approved' ? '通过' : ai.status === 'rejected' ? '驳回' : '结束'}`,
-        description: ai.flow_name || '',
+        description: [ai.flow_name ? `流程：${ai.flow_name}` : '', ai.actor ? `发起人：${ai.actor}` : ''].filter(Boolean).join(' · '),
         actor: '—',
       });
     }
   });
 
-  return events.sort((a, b) => String(b.time).localeCompare(String(a.time)));
+  return events.sort((a, b) => b.ts - a.ts);
 }
 
 module.exports = {
