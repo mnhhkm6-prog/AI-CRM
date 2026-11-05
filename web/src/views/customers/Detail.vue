@@ -5,11 +5,21 @@
         <div class="page-head__left">
           <el-button link @click="back">← 客户列表</el-button>
           <h2 class="page-title">{{ customer?.name }}</h2>
+          <el-button
+            link
+            :title="customer?.is_favorite ? '取消我的重点' : '加入我的重点'"
+            @click="toggleFavorite"
+          >
+            <span :style="{ color: customer?.is_favorite ? '#f7ba2a' : '#c0c4cc', fontSize: '18px' }">
+              {{ customer?.is_favorite ? '★' : '☆' }}
+            </span>
+          </el-button>
           <el-tag v-if="customer?.level" size="small" effect="plain">{{ customer.level }} 级</el-tag>
           <el-tag size="small" :type="statusTagType(customer?.status)" effect="plain">{{ statusLabel(customer?.status) }}</el-tag>
           <span class="text-muted">最近跟进 {{ fmt(customer?.last_activity_at || customer?.updated_at) }}</span>
         </div>
         <div class="page-head__right">
+          <el-button v-if="customer?.id" @click="reminderVisible = true">设置提醒</el-button>
           <el-button v-if="canUpdate" @click="goEdit">编辑</el-button>
           <el-button v-if="canUpdate && !customer?.is_in_sea" @click="seaDialog = true">转公海</el-button>
           <el-button v-if="canCreateOpp" type="primary" @click="goNewOpportunity">新建商机</el-button>
@@ -194,6 +204,11 @@
         <el-button @click="contactDrawer = false">取消</el-button>
       </div>
     </el-drawer>
+
+    <ReminderDrawer
+      v-model="reminderVisible"
+      :preset="{ entity_type: 'customer', entity_id: customer?.id, entity_name: customer?.name }"
+    />
   </div>
 </template>
 
@@ -203,6 +218,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
+import ReminderDrawer from '@/components/ReminderDrawer.vue'
 
 const DECISION_ROLES = ['决策人', '影响者', '使用者', '采购', '其他']
 const RELATIONSHIPS = ['陌生', '一般', '良好', '紧密']
@@ -216,6 +232,7 @@ const submitting = ref(false)
 const tab = ref('timeline')
 
 const customer = ref<any>(null)
+const reminderVisible = ref(false)
 const contacts = ref<any[]>([])
 const opportunities = ref<any[]>([])
 const proposals = ref<any[]>([])
@@ -238,6 +255,13 @@ const contactRules: FormRules = {
 
 const id = computed(() => route.params.id as string)
 const canUpdate = computed(() => userStore.hasPerm('customer:update'))
+
+async function toggleFavorite() {
+  const next = !customer.value?.is_favorite
+  await api.setCustomerFavorite(customer.value.id, next)
+  customer.value.is_favorite = next
+  ElMessage.success(next ? '已加入我的重点客户' : '已移出我的重点')
+}
 const canCreateOpp = computed(() => userStore.hasPerm('opportunity:create'))
 const canContactCreate = computed(() => userStore.hasPerm('contact:create'))
 const canContactUpdate = computed(() => userStore.hasPerm('contact:update'))

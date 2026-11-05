@@ -13,6 +13,7 @@ const { logOperation } = require('../services/operationLog');
 const configService = require('../services/configService');
 const stageEngine = require('../services/stageEngine');
 const seaService = require('../services/seaService');
+const reminderService = require('../services/reminderService');
 const { buildExcel } = require('../services/exporter');
 
 const DAY = 86400000;
@@ -191,6 +192,7 @@ const triggers = {
   'protection-expire': () => runProtectionExpire(),
   'lead-recycle': () => runLeadRecycle(),
   'report-subscribe': () => runReportSubscriptions(),
+  'reminder-scan': () => reminderService.scan(),
 };
 
 function start() {
@@ -225,7 +227,22 @@ function start() {
   cron.schedule('0 8 * * *', () => {
     runReportSubscriptions().catch((e) => console.error('[JOB report-subscribe]', e.message));
   });
-  console.log('定时任务已注册：停滞预警/公海回落/保护期解锁/线索回收/报表订阅');
+  // 提醒事项：每分钟扫描一次；服务启动后立即补扫，避免停机期间到点的提醒漏发
+  cron.schedule('* * * * *', () => {
+    try {
+      reminderService.scan();
+    } catch (e) {
+      console.error('[JOB reminder-scan]', e.message);
+    }
+  });
+  setTimeout(() => {
+    try {
+      reminderService.scan();
+    } catch (e) {
+      console.error('[JOB reminder-scan]', e.message);
+    }
+  }, 5000);
+  console.log('定时任务已注册：停滞预警/公海回落/保护期解锁/线索回收/报表订阅/提醒事项');
 }
 
 module.exports = {

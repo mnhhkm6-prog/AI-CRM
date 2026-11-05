@@ -34,6 +34,9 @@
         <el-select v-model="query.owner_id" placeholder="负责人" clearable filterable style="width: 170px" @change="reload">
           <el-option v-for="o in filterOwners" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
+        <el-select v-model="query.is_favorite" placeholder="我的重点" clearable style="width: 120px" @change="reload">
+          <el-option label="仅看我的重点" value="1" />
+        </el-select>
         <el-date-picker
           v-model="dateRange"
           type="daterange"
@@ -68,12 +71,18 @@
           :show-overflow-tooltip="col.tooltip"
         >
           <template #default="{ row }">
-            <el-link
-              v-if="col.key === 'name'"
-              type="primary"
-              underline="never"
-              @click="goDetail(row)"
-            >{{ row.name }}</el-link>
+            <template v-if="col.key === 'name'">
+              <el-button
+                link
+                :title="row.is_favorite ? '取消我的重点' : '加入我的重点'"
+                @click.stop="toggleFavorite(row)"
+              >
+                <span :style="{ color: row.is_favorite ? '#f7ba2a' : '#c0c4cc', fontSize: '15px' }">
+                  {{ row.is_favorite ? '★' : '☆' }}
+                </span>
+              </el-button>
+              <el-link type="primary" underline="never" @click="goDetail(row)">{{ row.name }}</el-link>
+            </template>
             <el-link
               v-else-if="col.key === 'customer_name'"
               type="primary"
@@ -215,7 +224,7 @@ const batchOwnerId = ref('')
 const batchSubmitting = ref(false)
 
 const query = reactive({
-  keyword: '', stage_config_id: '', status: '', owner_id: '',
+  keyword: '', stage_config_id: '', status: '', owner_id: '', is_favorite: '',
   sort: '', order: 'desc', page: 1, page_size: 20,
 })
 
@@ -292,7 +301,7 @@ async function load() {
   loading.value = true
   try {
     const params: Record<string, any> = { page: query.page, page_size: query.page_size }
-    ;['keyword', 'stage_config_id', 'status', 'owner_id'].forEach((k) => {
+    ;['keyword', 'stage_config_id', 'status', 'owner_id', 'is_favorite'].forEach((k) => {
       const v = (query as any)[k]
       if (v) params[k] = v
     })
@@ -318,7 +327,7 @@ function reload() {
 }
 
 function reset() {
-  Object.assign(query, { keyword: '', stage_config_id: '', status: '', owner_id: '', page: 1 })
+  Object.assign(query, { keyword: '', stage_config_id: '', status: '', owner_id: '', is_favorite: '', page: 1 })
   dateRange.value = null
   load()
 }
@@ -332,6 +341,13 @@ function onSizeChange(s: number) {
   query.page_size = s
   query.page = 1
   load()
+}
+
+async function toggleFavorite(row: any) {
+  const next = !row.is_favorite
+  await api.setOpportunityFavorite(row.id, next)
+  row.is_favorite = next
+  ElMessage.success(next ? '已加入我的重点商机' : '已移出我的重点')
 }
 
 function goDetail(row: any) {

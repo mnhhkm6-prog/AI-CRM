@@ -5,6 +5,15 @@
         <div class="page-head__left">
           <el-button link @click="back">← 商机列表</el-button>
           <h2 class="page-title">{{ opp?.name }}</h2>
+          <el-button
+            link
+            :title="opp?.is_favorite ? '取消我的重点' : '加入我的重点'"
+            @click="toggleFavorite"
+          >
+            <span :style="{ color: opp?.is_favorite ? '#f7ba2a' : '#c0c4cc', fontSize: '18px' }">
+              {{ opp?.is_favorite ? '★' : '☆' }}
+            </span>
+          </el-button>
           <el-tag size="small" effect="plain" :style="statusTagStyle(opp?.status)">{{ opp?.status }}</el-tag>
           <span v-if="alertLevel" :class="['alert-dot', `alert-dot--${alertLevel}`]">停滞 {{ stagnantDays }} 天</span>
         </div>
@@ -12,6 +21,7 @@
           <el-button v-if="canUpdate && opp?.status === '进行中'" type="primary" @click="advanceDialog = true">
             推进至下一阶段<template v-if="missingCount">（缺 {{ missingCount }} 项）</template>
           </el-button>
+          <el-button v-if="opp?.id" @click="reminderVisible = true">设置提醒</el-button>
           <el-button v-if="canUpdate" @click="goEdit">编辑</el-button>
           <el-dropdown v-if="hasMore" trigger="click" @command="onMore">
             <el-button>更多</el-button>
@@ -409,6 +419,10 @@
       :default-opportunity-name="opp?.name"
       @saved="reload"
     />
+    <ReminderDrawer
+      v-model="reminderVisible"
+      :preset="{ entity_type: 'opportunity', entity_id: id, entity_name: opp?.name }"
+    />
 
     <!-- 阶段回退 -->
     <el-dialog v-model="rollbackDialog" title="阶段回退" width="440px">
@@ -529,7 +543,7 @@
         <el-table-column prop="shared_to_name" label="成员" width="120" />
         <el-table-column prop="shared_by_name" label="分享人" width="120" />
         <el-table-column label="权限" min-width="160">
-          <template #default="{ row }">{{ (row.permissions || []).join('、') || '—' }}</template>
+          <template #default="{ row }">{{ sharePermLabels(row.permissions) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ row }">
@@ -727,6 +741,7 @@ import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import OpportunityAdvanceDialog from '@/components/OpportunityAdvanceDialog.vue'
 import ActivityDrawer from '@/components/ActivityDrawer.vue'
+import ReminderDrawer from '@/components/ReminderDrawer.vue'
 import { LOSS_REASONS, PRODUCT_TYPES, loadOwnerOptions, type Option } from '@/config/options'
 
 const DAY = 86400000
@@ -807,6 +822,7 @@ const stages = ref<any[]>([])
 
 const advanceDialog = ref(false)
 const activityDrawer = ref(false)
+const reminderVisible = ref(false)
 
 const rollbackDialog = ref(false)
 const rollbackStage = ref('')
@@ -825,6 +841,20 @@ const seaReason = ref('')
 
 const shareDialog = ref(false)
 const shareForm = reactive<any>({ shared_to: '', permissions: ['view', 'activity_create'] })
+
+/** 分享权限码 → 中文文案（与分享弹窗勾选项保持一致） */
+const SHARE_PERM_LABELS: Record<string, string> = {
+  view: '查看商机',
+  activity_create: '填写行为记录',
+  view_proposal: '查看方案',
+  edit: '编辑商机',
+  advance: '推进阶段',
+}
+
+function sharePermLabels(list: any) {
+  const arr: string[] = Array.isArray(list) ? list : []
+  return arr.map((p) => SHARE_PERM_LABELS[p] || p).join('、') || '—'
+}
 
 const proposalDialog = ref(false)
 const quotationDialog = ref(false)
@@ -855,6 +885,13 @@ const contractForm = reactive<any>({
 
 const id = computed(() => route.params.id as string)
 const canUpdate = computed(() => userStore.hasPerm('opportunity:update'))
+
+async function toggleFavorite() {
+  const next = !opp.value?.is_favorite
+  await api.setOpportunityFavorite(opp.value.id, next)
+  opp.value.is_favorite = next
+  ElMessage.success(next ? '已加入我的重点商机' : '已移出我的重点')
+}
 const canDelete = computed(() => userStore.hasPerm('opportunity:delete'))
 const canRollback = computed(() => userStore.isAdmin || userStore.hasPerm('opportunity:rollback'))
 const canActivityCreate = computed(() => userStore.hasPerm('activity:create'))
@@ -1533,7 +1570,9 @@ function runQuick(item: any) {
 }
 
 function onMore(cmd: string) {
-  if (cmd === 'rollback') {
+  if (cmd === 'reminder') {
+    reminderVisible.value = true
+  } else if (cmd === 'rollback') {
     rollbackStage.value = ''
     rollbackReason.value = ''
     rollbackDialog.value = true

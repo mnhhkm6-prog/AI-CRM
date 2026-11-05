@@ -37,6 +37,9 @@
         <el-select v-model="query.industry" placeholder="所属行业" clearable style="width: 140px" @change="reload">
           <el-option v-for="o in CUSTOMER_INDUSTRIES" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
+        <el-select v-model="query.is_favorite" placeholder="我的重点" clearable style="width: 120px" @change="reload">
+          <el-option label="仅看我的重点" value="1" />
+        </el-select>
         <el-button text type="primary" @click="more = !more">{{ more ? '收起筛选' : '更多筛选' }}</el-button>
         <div class="filter-bar__spacer" />
         <el-button @click="reset">重置</el-button>
@@ -69,12 +72,18 @@
           :show-overflow-tooltip="col.key !== 'name'"
         >
           <template #default="{ row }">
-            <el-link
-              v-if="col.key === 'name'"
-              type="primary"
-              underline="never"
-              @click="goDetail(row)"
-            >{{ row.name }}</el-link>
+            <template v-if="col.key === 'name'">
+              <el-button
+                link
+                :title="row.is_favorite ? '取消我的重点' : '加入我的重点'"
+                @click.stop="toggleFavorite(row)"
+              >
+                <span :style="{ color: row.is_favorite ? '#f7ba2a' : '#c0c4cc', fontSize: '15px' }">
+                  {{ row.is_favorite ? '★' : '☆' }}
+                </span>
+              </el-button>
+              <el-link type="primary" underline="never" @click="goDetail(row)">{{ row.name }}</el-link>
+            </template>
             <template v-else-if="col.key === 'level'">
               <el-tag v-if="row.level" size="small" effect="plain">{{ row.level }} 级</el-tag>
               <span v-else class="text-muted">—</span>
@@ -193,6 +202,7 @@ const query = reactive({
   source_channel: '',
   owner_id: '',
   is_in_sea: '',
+  is_favorite: '',
   sort: '',
   order: 'desc',
   page: 1,
@@ -259,7 +269,7 @@ async function load() {
   loading.value = true
   try {
     const params: Record<string, any> = { page: query.page, page_size: query.page_size }
-    ;['keyword', 'status', 'level', 'industry', 'scale', 'source_channel', 'owner_id', 'is_in_sea'].forEach((k) => {
+    ;['keyword', 'status', 'level', 'industry', 'scale', 'source_channel', 'owner_id', 'is_in_sea', 'is_favorite'].forEach((k) => {
       const v = (query as any)[k]
       if (v !== '' && v !== null && v !== undefined) params[k] = v
     })
@@ -283,7 +293,7 @@ function reload() {
 function reset() {
   Object.assign(query, {
     keyword: '', status: '', level: '', industry: '', scale: '',
-    source_channel: '', owner_id: '', is_in_sea: '', page: 1,
+    source_channel: '', owner_id: '', is_in_sea: '', is_favorite: '', page: 1,
   })
   load()
 }
@@ -297,6 +307,13 @@ function onSizeChange(s: number) {
   query.page_size = s
   query.page = 1
   load()
+}
+
+async function toggleFavorite(row: any) {
+  const next = !row.is_favorite
+  await api.setCustomerFavorite(row.id, next)
+  row.is_favorite = next
+  ElMessage.success(next ? '已加入我的重点客户' : '已移出我的重点')
 }
 
 function goCreate() {

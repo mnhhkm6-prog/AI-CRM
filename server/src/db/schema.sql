@@ -329,6 +329,42 @@ CREATE TABLE IF NOT EXISTS opportunity_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_shares_opp ON opportunity_shares(opportunity_id);
 
+-- ---------- 个人收藏（我的重点客户/商机，仅本人可见） ----------
+CREATE TABLE IF NOT EXISTS user_favorites (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,              -- customer / opportunity
+  entity_id TEXT NOT NULL,
+  created_at TEXT,
+  UNIQUE (user_id, entity_type, entity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_favorites_user ON user_favorites(user_id, entity_type);
+
+-- ---------- 提醒事项（消息通知中心 / 定时提醒） ----------
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,                  -- 接收人（当前仅本人）
+  created_by TEXT,
+  entity_type TEXT NOT NULL,              -- customer / opportunity / none（个人提醒）
+  entity_id TEXT NOT NULL,                -- 个人提醒存空字符串
+  title TEXT NOT NULL,
+  content TEXT,
+  remind_at TEXT NOT NULL,                -- 本地时间 YYYY-MM-DD HH:mm
+  repeat_rule TEXT DEFAULT 'none',        -- none / daily / weekly / monthly
+  repeat_until TEXT,                      -- 重复截止日期 YYYY-MM-DD
+  source TEXT DEFAULT 'manual',           -- manual / activity
+  source_id TEXT,
+  status TEXT DEFAULT 'pending',          -- pending / sent / done / canceled
+  sent_at TEXT,
+  done_at TEXT,
+  is_deleted INTEGER DEFAULT 0,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, remind_at);
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id, status, remind_at);
+CREATE INDEX IF NOT EXISTS idx_reminders_source ON reminders(source, source_id);
+
 -- ---------- M5 方案 / 报价 / 竞对 / 合同 / 附件 ----------
 CREATE TABLE IF NOT EXISTS file_storages (
   id TEXT PRIMARY KEY,

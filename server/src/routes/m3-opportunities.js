@@ -107,6 +107,13 @@ router.get('/opportunities', requirePermission('opportunity:view'), (req, res) =
     conditions.push('t.is_in_sea = ?');
     params.push(req.query.is_in_sea === 'true' || req.query.is_in_sea === '1' ? 1 : 0);
   }
+  if (req.query.is_favorite !== undefined) {
+    const wantFav = req.query.is_favorite === 'true' || req.query.is_favorite === '1';
+    conditions.push(
+      `${wantFav ? '' : 'NOT '}EXISTS (SELECT 1 FROM user_favorites f WHERE f.entity_type = 'opportunity' AND f.entity_id = t.id AND f.user_id = ?)`
+    );
+    params.push(req.user.id);
+  }
   if (req.query.start_date) {
     conditions.push('t.created_at >= ?');
     params.push(req.query.start_date);
@@ -122,12 +129,14 @@ router.get('/opportunities', requirePermission('opportunity:view'), (req, res) =
   const sort = buildSort(req, SORTABLE);
   const list = db
     .prepare(
-      `SELECT t.*, c.name AS customer_name, u.name AS owner_name FROM opportunities t
+      `SELECT t.*, c.name AS customer_name, u.name AS owner_name,
+              EXISTS (SELECT 1 FROM user_favorites f WHERE f.entity_type = 'opportunity' AND f.entity_id = t.id AND f.user_id = ?) AS is_favorite
+       FROM opportunities t
        LEFT JOIN customers c ON c.id = t.customer_id
        LEFT JOIN users u ON u.id = t.owner_id
        WHERE ${where}${sort.clause} LIMIT ? OFFSET ?`
     )
-    .all(...params, paging.limit, paging.offset);
+    .all(req.user.id, ...params, paging.limit, paging.offset);
 
   customField.attach('opportunity', list);
   ok(res, paged(list, total, paging));
@@ -216,6 +225,9 @@ router.get('/opportunities/:id', requirePermission('opportunity:view'), (req, re
     ? (db.prepare('SELECT name FROM customers WHERE id = ?').get(row.customer_id) || {}).name
     : null;
   const ownerName = row.owner_id ? (db.prepare('SELECT name FROM users WHERE id = ?').get(row.owner_id) || {}).name : null;
+  const isFavorite = !!db
+    .prepare("SELECT 1 FROM user_favorites WHERE entity_type = 'opportunity' AND entity_id = ? AND user_id = ?")
+    .get(row.id, req.user.id);
 
   const count = (table) =>
     db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE opportunity_id = ? AND is_deleted = 0`).get(row.id).c;
@@ -227,6 +239,7 @@ router.get('/opportunities/:id', requirePermission('opportunity:view'), (req, re
     fixed_actions: { items: evaluation.items, completeness: evaluation.completeness, missing: evaluation.missing },
     customer_name: customerName,
     owner_name: ownerName,
+    is_favorite: isFavorite,
     custom_fields: customField.readValues('opportunity', row.id),
     stats: {
       activity_count: count('activities'),
@@ -278,6 +291,7 @@ router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, 
     const sets = changedKeys.map((f) => `${f} = @${f}`).join(', ');
     db.prepare(`UPDATE opportunities SET ${sets}, updated_at = @t WHERE id = @id`).run({ ...after, id: before.id, t: now() });
   }
+
   if (body.custom_fields) customField.setValues('opportunity', before.id, body.custom_fields, req.user.id);
 
   stageEngine.touchOpportunity(before.id, req);
@@ -288,11 +302,39 @@ router.put('/opportunities/:id', requirePermission('opportunity:update'), (req, 
   ok(res, updated);
 });
 
+/** 设置/取消「我的重点」（个人收藏，仅本人可见，不影响其他人） */
+router.put('/opportunities/:id/favorite', requirePermission('opportunity:view'), (req, res) => {
+  const row = loadOpportunity(req);
+  const { is_favorite: isFavorite } = bodyOf(req);
+  if (typeof isFavorite !== 'boolean') throw badRequest('is_favorite 必须为布尔值');
+
+  if (isFavorite) {
+    db.prepare(
+      `INSERT INTO user_favorites (id, user_id, entity_type, entity_id, created_at)
+       VALUES (?, ?, 'opportunity', ?, ?)
+       ON CONFLICT(user_id, entity_type, entity_id) DO NOTHING`
+    ).run(newId(), req.user.id, row.id, now());
+  } else {
+    db.prepare("DELETE FROM user_favorites WHERE user_id = ? AND entity_type = 'opportunity' AND entity_id = ?").run(
+      req.user.id,
+      row.id
+    );
+  }
+  logOperation(req, {
+    action: isFavorite ? 'FAVORITE_OPPORTUNITY' : 'UNFAVORITE_OPPORTUNITY',
+    targetType: 'Opportunity',
+    targetId: row.id,
+    detail: { name: row.name },
+  });
+  ok(res, { id: row.id, is_favorite: isFavorite });
+});
+
 /** 删除商机（软删） */
 router.delete('/opportunities/:id', requirePermission('opportunity:delete'), (req, res) => {
   const row = loadOpportunity(req);
   assertOpportunityOwner(req, row);
   db.prepare('UPDATE opportunities SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
+  db.prepare("DELETE FROM user_favorites WHERE entity_type = 'opportunity' AND entity_id = ?").run(row.id);
   logOperation(req, { action: 'DELETE_OPPORTUNITY', targetType: 'Opportunity', targetId: row.id, detail: { name: row.name } });
   ok(res, { id: row.id, deleted: true });
 });

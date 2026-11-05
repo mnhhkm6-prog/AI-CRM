@@ -8,11 +8,12 @@ const express = require('express');
 
 const router = express.Router();
 const { db } = require('../db');
-const { ok, getPaging, paged } = require('../utils/http');
+const { ok, created, getPaging, paged } = require('../utils/http');
 const { notFound } = require('../utils/errors');
 const { requireAnyPermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
 const notification = require('../services/notification');
+const reminderService = require('../services/reminderService');
 const approvalFlow = require('../services/approvalFlow');
 
 // ---------------------------------------------------------------- 全局搜索
@@ -64,6 +65,9 @@ router.get('/notifications', (req, res) => {
   const { rows, total } = notification.list(req.user, {
     category: req.query.category,
     isRead: req.query.is_read,
+    keyword: req.query.keyword,
+    start: req.query.start,
+    end: req.query.end,
     limit: paging.limit,
     offset: paging.offset,
   });
@@ -87,6 +91,53 @@ router.post('/notifications/:id/read', (req, res) => {
   if (!row) throw notFound('消息不存在');
   notification.markRead(req.user, req.params.id);
   ok(res, { id: req.params.id, is_read: 1 });
+});
+
+// ---------------------------------------------------------------- 提醒事项（消息通知中心）
+router.get('/reminders', (req, res) => {
+  const paging = getPaging(req);
+  const result = reminderService.list(req.user, {
+    status: req.query.status,
+    entityType: req.query.entity_type,
+    entityId: req.query.entity_id,
+    keyword: req.query.keyword,
+    overdue: req.query.overdue === '1' || req.query.overdue === 'true',
+    start: req.query.start,
+    end: req.query.end,
+    source: req.query.source,
+    repeatRule: req.query.repeat_rule,
+    limit: paging.limit,
+    offset: paging.offset,
+  });
+  ok(res, paged(result.list, result.total, paging));
+});
+
+router.get('/reminders/today', (req, res) => {
+  ok(res, reminderService.todayList(req.user));
+});
+
+router.post('/reminders', (req, res) => {
+  created(res, reminderService.create(req.user, req.body || {}));
+});
+
+router.put('/reminders/:id', (req, res) => {
+  ok(res, reminderService.update(req.user, req.params.id, req.body || {}));
+});
+
+router.delete('/reminders/:id', (req, res) => {
+  ok(res, reminderService.remove(req.user, req.params.id));
+});
+
+router.post('/reminders/:id/done', (req, res) => {
+  ok(res, reminderService.markDone(req.user, req.params.id));
+});
+
+router.post('/reminders/:id/cancel', (req, res) => {
+  ok(res, reminderService.cancel(req.user, req.params.id));
+});
+
+router.post('/reminders/:id/skip', (req, res) => {
+  ok(res, reminderService.skip(req.user, req.params.id));
 });
 
 // ---------------------------------------------------------------- 审批中心（P04）

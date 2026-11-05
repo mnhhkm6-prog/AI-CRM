@@ -2,7 +2,7 @@
   <div class="page">
     <!-- 数据概览（界面设计文档 U2：我的预警商机 / 待办 / 快捷入口三卡片） -->
     <el-row :gutter="12" class="mb-12">
-      <el-col v-for="s in stats" :key="s.label" :xs="12" :sm="12" :md="6">
+      <el-col v-for="s in stats" :key="s.label" :xs="12" :sm="12" :md="4">
         <div class="stat" :style="{ borderTopColor: s.color }">
           <p class="stat__label">{{ s.label }}</p>
           <p class="stat__value">{{ s.value }}</p>
@@ -45,27 +45,32 @@
           <p v-else class="empty-tip">当前角色无停滞预警查看权限</p>
         </div>
 
-        <!-- 待跟进回访 -->
+        <!-- 今日待办（提醒事项 + 回访提醒聚合） -->
         <div class="section-card">
           <div class="section-head">
-            <h3 class="section-card__title">待跟进回访</h3>
-            <el-button v-if="userStore.hasPerm('activity:view')" link type="primary" @click="router.push('/activities')">
-              查看全部
-            </el-button>
+            <h3 class="section-card__title">今日待办</h3>
+            <el-button link type="primary" @click="router.push('/notifications?tab=reminders')">查看全部</el-button>
           </div>
-          <el-table v-if="userStore.hasPerm('activity:view')" :data="reminders" size="small" :loading="loading" style="width: 100%">
-            <el-table-column label="客户 / 商机" min-width="180" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.customer_name || row.opportunity_name || '未关联' }}</template>
-            </el-table-column>
-            <el-table-column prop="content" label="跟进内容" min-width="200" show-overflow-tooltip />
-            <el-table-column label="计划回访" width="140">
+          <el-table :data="reminders" size="small" :loading="loading" style="width: 100%">
+            <el-table-column label="提醒时间" width="150">
               <template #default="{ row }">
-                <span>{{ String(row.follow_up_time || '').slice(0, 10) }}</span>
+                <span>{{ row.remind_at }}</span>
                 <el-tag v-if="row.overdue" size="small" type="danger" class="ml-6">逾期</el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="提醒事项" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.title }}</template>
+            </el-table-column>
+            <el-table-column label="关联对象" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-link v-if="row.entity_name" type="primary" underline="never" @click="router.push(row.link)">
+                  {{ row.entity_label }}：{{ row.entity_name }}
+                </el-link>
+                <span v-else-if="row.entity_type === 'none'" class="text-muted">个人提醒</span>
+                <span v-else class="text-muted">已删除</span>
+              </template>
+            </el-table-column>
           </el-table>
-          <p v-else class="empty-tip">当前角色无销售行为查看权限</p>
         </div>
       </el-col>
 
@@ -125,6 +130,8 @@ const userStore = useUserStore()
 const loading = ref(false)
 const customerTotal = ref(0)
 const oppTotal = ref(0)
+const favCustomerTotal = ref(0)
+const favOppTotal = ref(0)
 const alertTotal = ref(0)
 const alerts = ref<any[]>([])
 const reminders = ref<any[]>([])
@@ -135,6 +142,8 @@ const pendingCount = ref(0)
 const stats = computed(() => [
   { label: '我的客户', value: customerTotal.value, hint: userStore.scopeBadge('customer'), color: '#4a5c7a' },
   { label: '进行中商机', value: oppTotal.value, hint: userStore.scopeBadge('opportunity'), color: '#4a5c7a' },
+  { label: '我的重点客户', value: favCustomerTotal.value, hint: '★ 仅本人可见', color: '#f7ba2a' },
+  { label: '我的重点商机', value: favOppTotal.value, hint: '★ 仅本人可见', color: '#f7ba2a' },
   { label: '停滞预警', value: alertTotal.value, hint: '未解除', color: '#e6a23c' },
   { label: '待我审批', value: pendingCount.value, hint: canApprove.value ? '需处理' : '无审批权限', color: '#f56c6c' },
 ])
@@ -161,9 +170,11 @@ async function load() {
   try {
     if (userStore.hasPerm('customer:view')) {
       jobs.push(api.listCustomers({ page: 1, page_size: 1 }).then((r) => (customerTotal.value = r.total)))
+      jobs.push(api.listCustomers({ page: 1, page_size: 1, is_favorite: '1' }).then((r) => (favCustomerTotal.value = r.total)))
     }
     if (userStore.hasPerm('opportunity:view')) {
       jobs.push(api.listOpportunities({ page: 1, page_size: 1, status: '进行中' }).then((r) => (oppTotal.value = r.total)))
+      jobs.push(api.listOpportunities({ page: 1, page_size: 1, is_favorite: '1' }).then((r) => (favOppTotal.value = r.total)))
     }
     if (userStore.hasPerm('alert:view')) {
       jobs.push(
@@ -177,9 +188,11 @@ async function load() {
         })
       )
     }
-    if (userStore.hasPerm('activity:view')) {
-      jobs.push(api.activityReminders().then((r) => (reminders.value = (r || []).slice(0, 8))))
-    }
+    jobs.push(
+      api.remindersToday().then((r) => {
+        reminders.value = (r.list || []).slice(0, 8)
+      })
+    )
     jobs.push(
       api.approvalSummary().then(async (s) => {
         canApprove.value = !!s.can_approve

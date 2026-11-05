@@ -15,6 +15,7 @@ const { requirePermission } = require('../middleware/permission');
 const dataScope = require('../services/dataScope');
 const { logOperation } = require('../services/operationLog');
 const stageEngine = require('../services/stageEngine');
+const reminderService = require('../services/reminderService');
 
 const SORTABLE = ['activity_time', 'created_at'];
 const EDITABLE = ['activity_type', 'activity_time', 'follow_up_time', 'content'];
@@ -112,6 +113,8 @@ router.post('/activities', requirePermission('activity:create'), (req, res) => {
   });
 
   if (body.opportunity_id) stageEngine.touchOpportunity(body.opportunity_id, req);
+  // 下次回访时间 → 自动生成提醒事项（消息通知中心）
+  if (followUpTime) reminderService.syncFromActivity(id);
   logOperation(req, { action: 'CREATE_ACTIVITY', targetType: 'Activity', targetId: id, detail: { opportunity_id: body.opportunity_id || null } });
 
   created(res, db.prepare('SELECT * FROM activities WHERE id = ?').get(id));
@@ -228,6 +231,7 @@ router.put('/activities/:id', requirePermission('activity:update'), (req, res) =
   const sets = Object.keys(after).map((f) => `${f} = @${f}`).join(', ');
   db.prepare(`UPDATE activities SET ${sets}, updated_at = @t WHERE id = @id`).run({ ...after, id: row.id, t: now() });
   if (row.opportunity_id) stageEngine.touchOpportunity(row.opportunity_id, req);
+  if (after.follow_up_time !== undefined) reminderService.syncFromActivity(row.id);
   logOperation(req, { action: 'UPDATE_ACTIVITY', targetType: 'Activity', targetId: row.id, detail: after });
   ok(res, db.prepare('SELECT * FROM activities WHERE id = ?').get(row.id));
 });
@@ -237,6 +241,7 @@ router.delete('/activities/:id', requirePermission('activity:delete'), (req, res
   const row = dataScope.findScoped('activity', 'activities', req.params.id, req.user);
   if (!row) throw notFound('行为记录不存在或无权访问');
   db.prepare('UPDATE activities SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
+  reminderService.syncFromActivity(row.id);
   logOperation(req, { action: 'DELETE_ACTIVITY', targetType: 'Activity', targetId: row.id, detail: { opportunity_id: row.opportunity_id } });
   ok(res, { id: row.id, deleted: true });
 });

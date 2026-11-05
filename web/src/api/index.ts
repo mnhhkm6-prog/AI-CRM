@@ -60,6 +60,17 @@ export const unreadCount = () => client.get<any, { unread: number }>('/notificat
 export const readNotification = (id: string) => client.post(`/notifications/${id}/read`)
 export const readAllNotifications = () => client.post<any, { updated: number }>('/notifications/read-all')
 
+/* 提醒事项 */
+export const listReminders = (params?: PageQuery) => client.get<any, Paged<any>>('/reminders', { params })
+export const remindersToday = () =>
+  client.get<any, { list: any[]; total: number; overdue: number }>('/reminders/today')
+export const createReminder = (body: any) => client.post<any, any>('/reminders', body)
+export const updateReminder = (id: string, body: any) => client.put<any, any>(`/reminders/${id}`, body)
+export const deleteReminder = (id: string) => client.delete(`/reminders/${id}`)
+export const doneReminder = (id: string) => client.post<any, any>(`/reminders/${id}/done`)
+export const cancelReminder = (id: string) => client.post<any, any>(`/reminders/${id}/cancel`)
+export const skipReminder = (id: string) => client.post<any, any>(`/reminders/${id}/skip`)
+
 export const listApprovals = (params?: PageQuery) => client.get<any, Paged<any>>('/approvals', { params })
 export const approvalSummary = () =>
   client.get<any, {
@@ -97,6 +108,7 @@ export const getCustomer = (id: string) => client.get<any, any>(`/customers/${id
 export const createCustomer = (body: any) => client.post<any, { id: string }>('/customers', body)
 export const updateCustomer = (id: string, body: any) => client.put(`/customers/${id}`, body)
 export const deleteCustomer = (id: string) => client.delete(`/customers/${id}`)
+export const setCustomerFavorite = (id: string, is_favorite: boolean) => client.put(`/customers/${id}/favorite`, { is_favorite })
 export const checkCustomerDuplicate = (body: { name?: string; phone?: string; credit_code?: string }) =>
   client.post<any, { duplicated: boolean; matches: any[] }>('/customers/check-duplicate', body)
 export const customerHistory = (id: string) => client.get<any, any[]>(`/customers/${id}/history`)
@@ -136,6 +148,7 @@ export const stageOptions = (includeDisabled = false) =>
 export const getOpportunity = (id: string) => client.get<any, any>(`/opportunities/${id}`)
 export const createOpportunity = (body: any) => client.post<any, { id: string }>('/opportunities', body)
 export const updateOpportunity = (id: string, body: any) => client.put(`/opportunities/${id}`, body)
+export const setOpportunityFavorite = (id: string, is_favorite: boolean) => client.put(`/opportunities/${id}/favorite`, { is_favorite })
 export const deleteOpportunity = (id: string) => client.delete(`/opportunities/${id}`)
 export const advanceCheck = (id: string) => client.get<any, any>(`/opportunities/${id}/advance-check`)
 export const advanceOpportunity = (id: string, body: any) => client.post(`/opportunities/${id}/advance`, body)

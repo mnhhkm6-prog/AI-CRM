@@ -57,6 +57,13 @@ export const MENU: MenuGroup[] = [
     ],
   },
   {
+    title: '消息通知中心',
+    icon: 'Bell',
+    children: [
+      { title: '消息通知中心', name: 'notifications', path: '/notifications', component: 'notifications/index' },
+    ],
+  },
+  {
     title: '公海池',
     icon: 'Ship',
     children: [{ title: '公海池', name: 'sea', path: '/sea', perm: 'sea:view', component: 'sea/index' }],
@@ -110,7 +117,6 @@ export const HIDDEN_ROUTES: MenuLeaf[] = [
   { title: '商机新建', name: 'opportunity-create', path: '/opportunities/new', perm: 'opportunity:create', component: 'opportunities/Edit' },
   { title: '商机编辑', name: 'opportunity-edit', path: '/opportunities/:id/edit', perm: 'opportunity:update', component: 'opportunities/Edit' },
   { title: '商机详情', name: 'opportunity-detail', path: '/opportunities/:id', perm: 'opportunity:view', component: 'opportunities/Detail' },
-  { title: '消息通知中心', name: 'notifications', path: '/notifications', component: 'notifications/index' },
   { title: '报表设计', name: 'report-templates-design', path: '/system/report-templates/:id', perm: 'report_template:view', component: 'system/report-template-edit' },
   { title: '阶段编辑', name: 'sys-stage-detail', path: '/system/stages/:id', perm: 'stage_config:view', component: 'system/stage-edit' },
 ]

@@ -117,6 +117,13 @@ router.get('/customers', requirePermission('customer:view'), (req, res) => {
     conditions.push('t.is_in_sea = ?');
     params.push(req.query.is_in_sea === 'true' || req.query.is_in_sea === '1' ? 1 : 0);
   }
+  if (req.query.is_favorite !== undefined) {
+    const wantFav = req.query.is_favorite === 'true' || req.query.is_favorite === '1';
+    conditions.push(
+      `${wantFav ? '' : 'NOT '}EXISTS (SELECT 1 FROM user_favorites f WHERE f.entity_type = 'customer' AND f.entity_id = t.id AND f.user_id = ?)`
+    );
+    params.push(req.user.id);
+  }
   if (req.query.start_date) {
     conditions.push('t.created_at >= ?');
     params.push(req.query.start_date);
@@ -132,11 +139,13 @@ router.get('/customers', requirePermission('customer:view'), (req, res) => {
   const sort = buildSort(req, SORTABLE);
   const list = db
     .prepare(
-      `SELECT t.*, u.name AS owner_name FROM customers t
+      `SELECT t.*, u.name AS owner_name,
+              EXISTS (SELECT 1 FROM user_favorites f WHERE f.entity_type = 'customer' AND f.entity_id = t.id AND f.user_id = ?) AS is_favorite
+       FROM customers t
        LEFT JOIN users u ON u.id = t.owner_id
        WHERE ${where}${sort.clause} LIMIT ? OFFSET ?`
     )
-    .all(...params, paging.limit, paging.offset);
+    .all(req.user.id, ...params, paging.limit, paging.offset);
 
   customField.attach('customer', list);
   ok(res, paged(list, total, paging));
@@ -220,6 +229,9 @@ router.get('/customers/:id', requirePermission('customer:view'), (req, res) => {
   if (!row) throw notFound('客户不存在或无权访问');
   row.custom_fields = customField.readValues('customer', row.id);
   row.owner_name = row.owner_id ? (db.prepare('SELECT name FROM users WHERE id = ?').get(row.owner_id) || {}).name : null;
+  row.is_favorite = !!db
+    .prepare("SELECT 1 FROM user_favorites WHERE entity_type = 'customer' AND entity_id = ? AND user_id = ?")
+    .get(row.id, req.user.id);
   ok(res, row);
 });
 
@@ -255,6 +267,34 @@ router.put('/customers/:id', requirePermission('customer:update'), (req, res) =>
   ok(res, updated);
 });
 
+/** 设置/取消「我的重点」（个人收藏，仅本人可见，不影响其他人） */
+router.put('/customers/:id/favorite', requirePermission('customer:view'), (req, res) => {
+  const row = dataScope.findScoped('customer', 'customers', req.params.id, req.user);
+  if (!row) throw notFound('客户不存在或无权访问');
+  const { is_favorite: isFavorite } = bodyOf(req);
+  if (typeof isFavorite !== 'boolean') throw badRequest('is_favorite 必须为布尔值');
+
+  if (isFavorite) {
+    db.prepare(
+      `INSERT INTO user_favorites (id, user_id, entity_type, entity_id, created_at)
+       VALUES (?, ?, 'customer', ?, ?)
+       ON CONFLICT(user_id, entity_type, entity_id) DO NOTHING`
+    ).run(newId(), req.user.id, row.id, now());
+  } else {
+    db.prepare("DELETE FROM user_favorites WHERE user_id = ? AND entity_type = 'customer' AND entity_id = ?").run(
+      req.user.id,
+      row.id
+    );
+  }
+  logOperation(req, {
+    action: isFavorite ? 'FAVORITE_CUSTOMER' : 'UNFAVORITE_CUSTOMER',
+    targetType: 'Customer',
+    targetId: row.id,
+    detail: { name: row.name },
+  });
+  ok(res, { id: row.id, is_favorite: isFavorite });
+});
+
 /** 删除客户（软删） */
 router.delete('/customers/:id', requirePermission('customer:delete'), (req, res) => {
   const row = dataScope.findScoped('customer', 'customers', req.params.id, req.user);
@@ -264,6 +304,7 @@ router.delete('/customers/:id', requirePermission('customer:delete'), (req, res)
     .get(row.id).c;
   if (openOpp > 0) throw conflict(`该客户下存在 ${openOpp} 个进行中的商机，无法删除`);
   db.prepare('UPDATE customers SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
+  db.prepare("DELETE FROM user_favorites WHERE entity_type = 'customer' AND entity_id = ?").run(row.id);
   logOperation(req, { action: 'DELETE_CUSTOMER', targetType: 'Customer', targetId: row.id, detail: { name: row.name } });
   ok(res, { id: row.id, deleted: true });
 });

@@ -6,7 +6,7 @@
  *      以 dedup_key 保证幂等，已读状态持久化在表中。
  */
 const { db } = require('../db');
-const { newId, now, today } = require('../utils/ids');
+const { newId, now } = require('../utils/ids');
 
 /** 审批人集合：管理层 + 系统管理员 */
 function approverIds() {
@@ -148,31 +148,11 @@ function syncForUser(user) {
     });
   });
 
-  // 5) 回访提醒（M4-R3）→ 通知行为记录创建人
-  const reminders = db
-    .prepare(
-      `SELECT a.id, a.activity_time, a.follow_up_time, a.content, a.customer_id, c.name AS customer_name
-       FROM activities a LEFT JOIN customers c ON c.id = a.customer_id
-       WHERE a.is_deleted = 0 AND a.created_by = ? AND a.follow_up_time IS NOT NULL
-             AND substr(a.follow_up_time, 1, 10) <= ?`
-    )
-    .all(user.id, today());
-  reminders.forEach((a) => {
-    upsert(user.id, {
-      category: 'reminder',
-      title: `回访提醒：${a.customer_name || '客户'} 待回访`,
-      content: a.content,
-      refType: 'activity',
-      refId: a.id,
-      link: '/activities',
-      dedupKey: `reminder:activity:${a.id}`,
-      createdAt: a.follow_up_time,
-    });
-  });
+  // 5) 回访提醒已统一由提醒事项（reminders + 每分钟扫描）生成，此处不再重复推送
 }
 
-/** 列表（按未读优先、时间倒序） */
-function list(user, { category, isRead, limit = 50, offset = 0 }) {
+/** 列表（按未读优先、时间倒序）；支持关键词、时间范围筛选 */
+function list(user, { category, isRead, keyword, start, end, limit = 50, offset = 0 }) {
   const cond = ['user_id = ?'];
   const params = [user.id];
   if (category) {
@@ -182,6 +162,18 @@ function list(user, { category, isRead, limit = 50, offset = 0 }) {
   if (isRead !== undefined && isRead !== null && isRead !== '') {
     cond.push('is_read = ?');
     params.push(isRead === true || isRead === 'true' || isRead === 1 || isRead === '1' ? 1 : 0);
+  }
+  if (keyword) {
+    cond.push('(title LIKE ? OR content LIKE ?)');
+    params.push(`%${keyword}%`, `%${keyword}%`);
+  }
+  if (start) {
+    cond.push('substr(created_at, 1, 10) >= ?');
+    params.push(String(start).slice(0, 10));
+  }
+  if (end) {
+    cond.push('substr(created_at, 1, 10) <= ?');
+    params.push(String(end).slice(0, 10));
   }
   const where = cond.join(' AND ');
   const total = db.prepare(`SELECT COUNT(*) c FROM notifications WHERE ${where}`).get(...params).c;

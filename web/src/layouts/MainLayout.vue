@@ -19,11 +19,23 @@
               </template>
               <el-menu-item v-for="leaf in group.children" :key="leaf.path" :index="leaf.path">
                 {{ leaf.title }}
+                <el-badge
+                  v-if="!collapsed && leaf.name === 'notifications' && unread"
+                  :value="unread"
+                  class="layout__nav-badge"
+                />
               </el-menu-item>
             </el-sub-menu>
             <el-menu-item v-else :index="group.children[0].path">
               <el-icon><component :is="group.icon" /></el-icon>
-              <template #title>{{ group.children[0].title }}</template>
+              <template #title>
+                {{ group.children[0].title }}
+                <el-badge
+                  v-if="!collapsed && group.children[0].name === 'notifications' && unread"
+                  :value="unread"
+                  class="layout__nav-badge"
+                />
+              </template>
             </el-menu-item>
           </template>
         </el-menu>
@@ -473,6 +485,12 @@ onUnmounted(() => {
 .layout__badge {
   display: inline-flex;
   cursor: pointer;
+}
+
+.layout__nav-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .layout__user {
