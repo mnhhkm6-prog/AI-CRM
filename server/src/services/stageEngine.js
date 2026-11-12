@@ -94,10 +94,6 @@ const SYS_CHECKS = {
   'sys:proposal_formal': (opp) => proposalCheck(opp, 'formal'),
   'sys:quotation': (opp) => quotationCheck(opp, null),
   'sys:quotation_final': (opp) => quotationCheck(opp, 'final'),
-  'sys:product_price': (opp) => {
-    const c = count('SELECT COUNT(*) c FROM product_prices WHERE is_deleted = 0');
-    return { done: c > 0, value: `${c} 条产品价格记录` };
-  },
   'sys:competitor': (opp) => {
     const c = count('SELECT COUNT(*) c FROM competitors WHERE opportunity_id = ? AND is_deleted = 0', opp.id);
     return { done: c > 0, value: `${c} 个竞争对手` };
@@ -179,7 +175,6 @@ const SYS_FIELD_LABELS = {
   'sys:proposal_formal': '正式方案',
   'sys:quotation': '报价单',
   'sys:quotation_final': '最终报价',
-  'sys:product_price': '产品价格记录',
   'sys:competitor': '竞争对手',
   'sys:contract': '合同文件',
   'sys:contract_amount': '合同金额',

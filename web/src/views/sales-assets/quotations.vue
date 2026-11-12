@@ -24,7 +24,7 @@
           <el-option v-for="o in QUOTATION_TYPES" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select v-model="query.product_type" placeholder="产品类型" clearable style="width: 150px" @change="reload">
-          <el-option v-for="p in PRODUCT_TYPES" :key="p" :label="p" :value="p" />
+          <el-option v-for="p in productTypes" :key="p" :label="p" :value="p" />
         </el-select>
         <el-select
           v-model="query.opportunity_id"
@@ -151,7 +151,7 @@
         </el-form-item>
         <el-form-item label="产品类型" required>
           <el-select v-model="form.product_type" placeholder="请选择" style="width: 100%">
-            <el-option v-for="p in PRODUCT_TYPES" :key="p" :label="p" :value="p" />
+            <el-option v-for="p in productTypes" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
         <el-form-item label="报价金额" required>
@@ -191,7 +191,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import ViewBar, { type ViewApplyState, type ViewColumnDef, type ViewFilterDef } from '@/components/ViewBar.vue'
-import { PRODUCT_TYPES } from '@/config/options'
+import { PRODUCT_TYPES, DICT_CODES, dictValues } from '@/config/options'
+
+// 产品类型跟随字典维护
+const productTypes = computed(() => dictValues(DICT_CODES.productType, PRODUCT_TYPES))
 
 const QUOTATION_TYPES = [
   { label: '初步报价', value: 'preliminary' },
@@ -245,7 +248,7 @@ const form = reactive<any>({ opportunity_id: '', quotation_type: 'preliminary', 
 /** 视图默认筛选可配置项（仅后端支持的查询参数） */
 const filterDefs = computed<ViewFilterDef[]>(() => [
   { key: 'quotation_type', label: '报价类型', type: 'select', options: QUOTATION_TYPES },
-  { key: 'product_type', label: '产品类型', type: 'select', options: PRODUCT_TYPES.map((p) => ({ label: p, value: p })) },
+  { key: 'product_type', label: '产品类型', type: 'select', options: productTypes.value.map((p) => ({ label: p, value: p })) },
 ])
 
 /** 当前视图可见列（按视图配置顺序） */

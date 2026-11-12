@@ -14,10 +14,41 @@ const configService = require('../services/configService');
 const stageEngine = require('../services/stageEngine');
 const seaService = require('../services/seaService');
 const reminderService = require('../services/reminderService');
+const notification = require('../services/notification');
 const { buildExcel } = require('../services/exporter');
 
 const DAY = 86400000;
 const daysSince = (iso) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DAY) : 0);
+
+/**
+ * 数据自动转入公海后，通知原负责人与主管，避免销售"数据被系统拿走却不知情"
+ */
+function notifySeaEntered({ entityType, entityId, name, recordId, previousOwner, label, reason }) {
+  const targets = new Set();
+  if (previousOwner) targets.add(previousOwner);
+  db.prepare(
+    `SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+     WHERE r.role_code IN ('management', 'system_admin') AND u.is_deleted = 0 AND u.status = 'enabled'`
+  )
+    .all()
+    .forEach((u) => targets.add(u.id));
+
+  targets.forEach((userId) => {
+    const link =
+      userId === previousOwner
+        ? `/sea/${entityType}?previous_owner=me`
+        : `/sea/${entityType}${previousOwner ? `?previous_owner=${previousOwner}` : ''}`;
+    notification.push(userId, {
+      category: 'sea',
+      title: `${label}「${name}」已转入公海`,
+      content: reason || '可在公海池查看并重新分配',
+      refType: entityType,
+      refId: entityId,
+      link,
+      dedupKey: `sea:${recordId}:${userId}`,
+    });
+  });
+}
 
 /** 停滞预警检测（每日 00:05） */
 function runStaleAlertScan() {
@@ -101,11 +132,21 @@ function runSeaFallback() {
     const stage = stageEngine.getById(opp.stage_config_id);
     const th = configService.alertThresholds(stage);
     if (daysSince(last) < th.level3 + fallback) return;
-    seaService.moveToSea({
+    const reason = `三级预警后连续 ${th.level3 + fallback} 天无推进，系统自动回落公海`;
+    const record = seaService.moveToSea({
       entityType: 'opportunity',
       entityId: opp.id,
-      reason: `三级预警后连续 ${th.level3 + fallback} 天无推进，系统自动回落公海`,
+      reason,
       source: 'auto_stale',
+    });
+    notifySeaEntered({
+      entityType: 'opportunity',
+      entityId: opp.id,
+      name: opp.name,
+      recordId: record.id,
+      previousOwner: opp.owner_id,
+      label: '商机',
+      reason,
     });
     moved.push(opp.id);
   });
@@ -131,17 +172,70 @@ function runLeadRecycle() {
     .all();
   const recycled = [];
   leads.forEach((l) => {
-    if (daysSince(l.created_at) < days) return;
-    seaService.moveToSea({
+    // 以最近一次更新为准：线索表没有独立的活动时间，updated_at 能反映跟进
+    if (daysSince(l.updated_at || l.created_at) < days) return;
+    const reason = `线索 ${days} 天未转化，系统自动回收`;
+    const record = seaService.moveToSea({
       entityType: 'lead',
       entityId: l.id,
-      reason: `线索 ${days} 天未转化，系统自动回收`,
+      reason,
       source: 'auto_recycle',
+    });
+    notifySeaEntered({
+      entityType: 'lead',
+      entityId: l.id,
+      name: l.name,
+      recordId: record.id,
+      previousOwner: l.owner_id,
+      label: '线索',
+      reason,
     });
     recycled.push(l.id);
   });
   const result = { recycled: recycled.length, lead_ids: recycled };
   logOperation(null, { action: 'RUN_JOB_LEAD_RECYCLE', targetType: 'Job', targetId: 'lead-recycle', detail: result });
+  return result;
+}
+
+/** 客户长期无商机更新或创建 → 自动转公海（每日 00:25） */
+function runCustomerRecycle() {
+  const days = configService.getNumber('customer_inactive_recycle_days', 90);
+  const customers = db
+    .prepare("SELECT * FROM customers WHERE is_deleted = 0 AND is_in_sea = 0 AND status = 'active'")
+    .all();
+  const recycled = [];
+  customers.forEach((c) => {
+    const lastOpp = db
+      .prepare(
+        `SELECT MAX(COALESCE(last_activity_at, stage_changed_at, created_at)) AS v
+         FROM opportunities WHERE customer_id = ? AND is_deleted = 0`
+      )
+      .get(c.id).v;
+    const last = [c.last_activity_at, lastOpp, c.created_at].filter(Boolean).sort().pop();
+    if (!last || daysSince(last) < days) return;
+    const reason = `客户 ${days} 天无商机更新或创建，系统自动转入公海（含进行中商机）`;
+    try {
+      const res = seaService.releaseCustomerToSea({
+        customerId: c.id,
+        reason,
+        source: 'auto_inactive',
+      });
+      notifySeaEntered({
+        entityType: 'customer',
+        entityId: c.id,
+        name: c.name,
+        recordId: res.record.id,
+        previousOwner: c.owner_id,
+        label: '客户',
+        reason,
+      });
+      recycled.push(c.id);
+    } catch (e) {
+      // 单条异常不影响其余客户
+    }
+  });
+  const result = { recycled: recycled.length, customer_ids: recycled };
+  logOperation(null, { action: 'RUN_JOB_CUSTOMER_RECYCLE', targetType: 'Job', targetId: 'customer-recycle', detail: result });
   return result;
 }
 
@@ -191,6 +285,7 @@ const triggers = {
   'sea-fallback': () => runSeaFallback(),
   'protection-expire': () => runProtectionExpire(),
   'lead-recycle': () => runLeadRecycle(),
+  'customer-recycle': () => runCustomerRecycle(),
   'report-subscribe': () => runReportSubscriptions(),
   'reminder-scan': () => reminderService.scan(),
 };
@@ -224,6 +319,13 @@ function start() {
       console.error('[JOB lead-recycle]', e.message);
     }
   });
+  cron.schedule('25 0 * * *', () => {
+    try {
+      runCustomerRecycle();
+    } catch (e) {
+      console.error('[JOB customer-recycle]', e.message);
+    }
+  });
   cron.schedule('0 8 * * *', () => {
     runReportSubscriptions().catch((e) => console.error('[JOB report-subscribe]', e.message));
   });
@@ -242,10 +344,10 @@ function start() {
       console.error('[JOB reminder-scan]', e.message);
     }
   }, 5000);
-  console.log('定时任务已注册：停滞预警/公海回落/保护期解锁/线索回收/报表订阅/提醒事项');
+  console.log('定时任务已注册：停滞预警/公海回落/保护期解锁/线索回收/客户回收/报表订阅/提醒事项');
 }
 
 module.exports = {
   start, triggers, isDue,
-  runStaleAlertScan, runSeaFallback, runProtectionExpire, runLeadRecycle, runReportSubscriptions,
+  runStaleAlertScan, runSeaFallback, runProtectionExpire, runLeadRecycle, runCustomerRecycle, runReportSubscriptions,
 };

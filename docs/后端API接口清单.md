@@ -192,10 +192,6 @@
 | GET | `/opportunities/{id}/quotations` | 报价列表 M5-R2 | quotation:view | — |
 | POST | `/opportunities/{id}/quotations` | 新增报价 M5-R2 | quotation:create | body: `quotation_type*,amount*,product_type*,file_storage_id` |
 | DELETE | `/quotations/{id}` | 删除报价 | quotation:delete | — |
-| GET | `/products/prices` | 产品价格记录列表 M5-R3 | quotation:view | `page,product_type` |
-| POST | `/products/prices` | 录入产品价格 M5-R3 | quotation:create | body: `product_type*,price*` |
-| PUT | `/products/prices/{id}` | 修改产品价格 | quotation:update | — |
-| DELETE | `/products/prices/{id}` | 删除产品价格 | quotation:delete | — |
 | GET | `/opportunities/{id}/competitors` | 商机竞争对手列表 | competitor:view | — |
 | POST | `/opportunities/{id}/competitors` | 录入竞争对手 M5-R5 | competitor:create | body: `competitor_master_id,name*,strengths,weaknesses` |
 | DELETE | `/competitors/{id}` | 删除 | competitor:delete | — |
@@ -209,10 +205,10 @@
 ### M6 公海管理
 | 方法 | 路径 | 说明 | 权限 | 关键入参 |
 |---|---|---|---|---|
-| GET | `/sea-pool` | 公海池（type=customer\|opportunity\|lead）M6-R1 | sea:view | `type*,page,keyword` |
-| POST | `/sea-pool/{type}/{id}/pickup` | 领取 M6-R2（需开启领取模式） | sea:pickup | → 校验个人/每日上限 M6-R4 |
-| POST | `/sea-pool/{type}/{id}/assign` | 主管分配 M6-R3 | sea:assign | body: `owner_id` |
-| GET | `/sea-pool/{type}/{id}` | 公海记录详情 | sea:view | → 含 `protect_until` |
+| GET | `/sea-pool` | 公海池（type=customer\|opportunity\|lead）M6-R1 | sea:view | `type*,page,keyword,previous_owner`（`me`=我转出的）；通用：`source`（manual/auto_stale/auto_recycle/auto_inactive/assigned）、`entered_start/entered_end`、`protect_state`（yes/no）；客户：`customer_type,industry`；商机：`customer_name,amount_min,amount_max,stage_config_id`；线索：`source_channel` |
+| POST | `/sea-pool/{type}/{id}/pickup` | 领取 M6-R2（需开启领取模式） | sea:pickup | → 校验个人/每日上限 M6-R4；商机所属客户也在公海时返回 409（须先领客户）；保护期内返回 409，`system_admin` 不受保护期限制 |
+| POST | `/sea-pool/{type}/{id}/assign` | 主管分配 M6-R3 | sea:assign | body: `owner_id`；商机所属客户也在公海时返回 409（须先分配客户） |
+| GET | `/sea-pool/{type}/{id}` | 公海记录详情 | sea:view | → 含 `protect_until`；`type=customer` 时返回 `opportunities`（随迁商机清单） |
 | POST | `/sea-pool/auto-assign/run` | 触发自动分配算法（P2）M6-R7 | sea:manage | — |
 | GET | `/sea-pool/rules` | 当前公海规则 | sea:view | → 来自 system_configs(sea) |
 
@@ -328,6 +324,7 @@
 ### M14 系统字典管理
 | 方法 | 路径 | 说明 | 权限 | 关键入参 |
 |---|---|---|---|---|
+| GET | `/option-dicts` | 只读字典选项（业务下拉联动） | 登录即可 | `codes` 逗号分隔，缺省返回全部业务字典；仅返回启用项 |
 | GET | `/dictionaries` | 字典类型列表 M14-R1 | dictionary:view | `category,is_enabled` |
 | POST | `/dictionaries` | 新增字典类型 M14-R1 | dictionary:manage | body: `dict_code*,dict_name*,category,description` |
 | GET | `/dictionaries/{id}` | 字典类型详情 | dictionary:view | — |
@@ -423,5 +420,4 @@
 > - `role_permissions` 增列 `scope_config_json`（承载 `data_scope=custom` 的自定义部门范围）。
 > - 新增 `stagnation_explains` 表承载 M7-R5 停滞说明（延期）申请与审批。
 > - 新增 `report_subscriptions` 表承载 M15-R6 报表订阅。
-> - 新增 `products` / `product_prices` 表承载 M5-R3 产品价格记录。
 > - 新增 `customer_history` 表承载 M1-R2 客户修改历史。

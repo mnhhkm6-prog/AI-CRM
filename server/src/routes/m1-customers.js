@@ -180,6 +180,7 @@ router.post('/customers', requirePermission('customer:create'), (req, res) => {
   const body = bodyOf(req);
   const name = requireString(body, 'name', '客户名称');
   const sourceChannel = requireString(body, 'source_channel', '来源渠道');
+  const industry = requireString(body, 'industry', '所属行业');
 
   const dup = db.prepare('SELECT id, name FROM customers WHERE is_deleted = 0 AND name = ?').get(name);
   if (dup && !body.ignore_duplicate) {
@@ -199,7 +200,7 @@ router.post('/customers', requirePermission('customer:create'), (req, res) => {
   ).run({
     id, name,
     type: optional(body, 'type', '企业'),
-    industry: optional(body, 'industry'),
+    industry,
     scale: optional(body, 'scale'),
     address: optional(body, 'address'),
     credit_code: optional(body, 'credit_code'),
@@ -385,12 +386,12 @@ router.post('/customers/:id/release-to-sea', requirePermission('customer:update'
   const row = dataScope.findScoped('customer', 'customers', req.params.id, req.user);
   if (!row) throw notFound('客户不存在或无权访问');
   const reason = requireString(bodyOf(req), 'reason', '转公海原因');
-  const record = seaService.moveToSea({ entityType: 'customer', entityId: row.id, reason, source: 'manual', user: req.user });
+  const result = seaService.releaseCustomerToSea({ customerId: row.id, reason, source: 'manual', user: req.user });
   db.prepare(
     `INSERT INTO customer_history (id, customer_id, action, after_snapshot, changed_by, created_at)
      VALUES (?, ?, 'release_to_sea', ?, ?, ?)`
-  ).run(newId(), row.id, JSON.stringify({ reason }), req.user.id, now());
-  ok(res, record);
+  ).run(newId(), row.id, JSON.stringify({ reason, opportunities: result.opportunities }), req.user.id, now());
+  ok(res, result.record);
 });
 
 // ---------------------------------------------------------------- 联系人

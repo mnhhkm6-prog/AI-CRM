@@ -30,6 +30,19 @@ router.get('/sea-pool', requirePermission('sea:view'), (req, res) => {
   const result = seaService.list({
     entityType,
     keyword: req.query.keyword || null,
+    previousOwner: req.query.previous_owner || null,
+    viewerId: req.user.id,
+    source: req.query.source || null,
+    enteredStart: req.query.entered_start || null,
+    enteredEnd: req.query.entered_end || null,
+    protectState: req.query.protect_state || null,
+    customerType: req.query.customer_type || null,
+    industry: req.query.industry || null,
+    customerName: req.query.customer_name || null,
+    amountMin: req.query.amount_min ?? null,
+    amountMax: req.query.amount_max ?? null,
+    stageConfigId: req.query.stage_config_id || null,
+    sourceChannel: req.query.source_channel || null,
     page: paging.page,
     page_size: paging.page_size,
     limit: paging.limit,
@@ -101,6 +114,8 @@ router.get('/sea-pool/:type/:id', requirePermission('sea:view'), (req, res) => {
     protect_until: record.protect_until,
     claimed_by_name: claimedByName,
     previous_owner_name: previousOwnerName,
+    // 客户在公海时随迁的商机清单，供主管分配前确认
+    opportunities: type === 'customer' ? seaService.childOpportunities(record.id) : [],
   });
 });
 

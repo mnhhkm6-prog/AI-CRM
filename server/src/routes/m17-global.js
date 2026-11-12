@@ -116,6 +116,12 @@ router.get('/reminders/today', (req, res) => {
   ok(res, reminderService.todayList(req.user));
 });
 
+router.get('/reminders/:id', (req, res) => {
+  const row = reminderService.getById(req.user, req.params.id);
+  if (!row) throw notFound('提醒不存在或无权访问');
+  ok(res, row);
+});
+
 router.post('/reminders', (req, res) => {
   created(res, reminderService.create(req.user, req.body || {}));
 });
@@ -130,6 +136,10 @@ router.delete('/reminders/:id', (req, res) => {
 
 router.post('/reminders/:id/done', (req, res) => {
   ok(res, reminderService.markDone(req.user, req.params.id));
+});
+
+router.post('/reminders/:id/ack', (req, res) => {
+  ok(res, reminderService.ack(req.user, req.params.id));
 });
 
 router.post('/reminders/:id/cancel', (req, res) => {

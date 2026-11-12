@@ -5,6 +5,7 @@
  *       故此处内置与出厂字典一致的默认项，保证各角色均可正常录入。
  */
 import * as api from '@/api'
+import { reactive } from 'vue'
 
 export interface Option {
   label: string
@@ -67,9 +68,82 @@ export const DICT_LOCAL: Record<string, string[]> = {
   product_type: PRODUCT_TYPES,
   customer_industry: CUSTOMER_INDUSTRIES.map((o) => o.value),
   customer_scale: CUSTOMER_SCALES.map((o) => o.value),
+  customer_source_channel: SOURCE_CHANNELS.map((o) => o.value),
   lead_source_channel: SOURCE_CHANNELS.map((o) => o.value),
   activity_type: ACTIVITY_TYPES.map((o) => o.value),
   opportunity_loss_reason: LOSS_REASONS.map((o) => o.value),
+}
+
+/* ------------------------------------------------------------------
+ * 字典联动：登录后从 /option-dicts 拉取启用项，各处下拉统一读取
+ * 接口异常或字典为空时回落到上面的出厂默认值，保证仍可录入
+ * ------------------------------------------------------------------ */
+export const DICT_CODES = {
+  customerIndustry: 'customer_industry',
+  customerScale: 'customer_scale',
+  customerSourceChannel: 'customer_source_channel',
+  leadSourceChannel: 'lead_source_channel',
+  lossReason: 'opportunity_loss_reason',
+  activityType: 'activity_type',
+  productType: 'product_type',
+} as const
+
+const DICT_STATE = reactive<Record<string, Option[]>>({})
+
+/** 读取字典选项（响应式，字典加载完成后自动刷新下拉） */
+export function dictOptions(code: string, fallback: Option[]): Option[] {
+  const list = DICT_STATE[code]
+  return list && list.length ? list : fallback
+}
+
+/** 读取字典值列表（用于只存字符串数组的场景，如产品类型） */
+export function dictValues(code: string, fallback: string[]): string[] {
+  const list = DICT_STATE[code]
+  return list && list.length ? list.map((o) => o.value) : fallback
+}
+
+/** 登录后调用一次；不传 codes 时加载全部业务字典 */
+export async function preloadDictOptions(codes?: string[]): Promise<void> {
+  try {
+    const res = await api.optionDicts(codes)
+    Object.entries(res || {}).forEach(([code, items]) => {
+      if (Array.isArray(items) && items.length) DICT_STATE[code] = items
+    })
+  } catch (e) {
+    /* 保持出厂默认值 */
+  }
+}
+
+/* 字典变更同步：同浏览器多标签页用 BroadcastChannel 即时同步，跨机器靠 60 秒轮询兜底 */
+const DICT_CHANNEL_NAME = 'crm:dicts'
+let dictChannel: BroadcastChannel | null = null
+let dictPollTimer: number | null = null
+
+/** 字典维护保存后调用：当前标签页立即刷新，并通知其他标签页重新加载 */
+export function notifyDictsChanged(): void {
+  preloadDictOptions()
+  dictChannel?.postMessage('refresh')
+}
+
+/** 登录后启动字典同步（频道监听 + 定时轮询） */
+export function startDictSync(intervalMs = 60000): void {
+  if (typeof BroadcastChannel !== 'undefined' && !dictChannel) {
+    dictChannel = new BroadcastChannel(DICT_CHANNEL_NAME)
+    dictChannel.onmessage = () => preloadDictOptions()
+  }
+  if (dictPollTimer === null) {
+    dictPollTimer = window.setInterval(() => preloadDictOptions(), intervalMs)
+  }
+}
+
+/** 退出登录/卸载时释放监听与定时器 */
+export function stopDictSync(): void {
+  dictChannel?.close()
+  dictChannel = null
+  if (dictPollTimer !== null) {
+    window.clearInterval(dictPollTimer)
+    dictPollTimer = null
+  }
 }
 
 export const labelOf = (options: Option[], value?: string | null) =>

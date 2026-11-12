@@ -208,7 +208,6 @@ const FILL_TAB_MAP: Record<string, string> = {
   'sys:proposal_formal': 'assets',
   'sys:quotation': 'assets',
   'sys:quotation_final': 'assets',
-  'sys:product_price': 'assets',
   'sys:competitor': 'competitors',
   'sys:contract': 'contracts',
   'sys:contract_amount': 'contracts',

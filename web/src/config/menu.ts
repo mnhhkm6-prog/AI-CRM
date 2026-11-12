@@ -51,7 +51,6 @@ export const MENU: MenuGroup[] = [
     children: [
       { title: '方案管理', name: 'proposals', path: '/proposals', perm: 'proposal:view', component: 'sales-assets/proposals' },
       { title: '报价管理', name: 'quotations', path: '/quotations', perm: 'quotation:view', component: 'sales-assets/quotations' },
-      { title: '产品价格', name: 'product-prices', path: '/product-prices', perm: 'quotation:view', component: 'sales-assets/product-prices' },
       { title: '竞争对手', name: 'competitors', path: '/competitors', perm: 'competitor:view', component: 'sales-assets/competitors' },
       { title: '合同管理', name: 'contracts', path: '/contracts', perm: 'contract:view', component: 'sales-assets/contracts' },
     ],
@@ -60,13 +59,18 @@ export const MENU: MenuGroup[] = [
     title: '消息通知中心',
     icon: 'Bell',
     children: [
-      { title: '消息通知中心', name: 'notifications', path: '/notifications', component: 'notifications/index' },
+      { title: '消息中心', name: 'notifications', path: '/notifications', component: 'notifications/index' },
+      { title: '提醒事项', name: 'reminders', path: '/reminders', component: 'reminders/index' },
     ],
   },
   {
     title: '公海池',
     icon: 'Ship',
-    children: [{ title: '公海池', name: 'sea', path: '/sea', perm: 'sea:view', component: 'sea/index' }],
+    children: [
+      { title: '客户公海', name: 'sea-customer', path: '/sea/customer', perm: 'sea:view', component: 'sea/index' },
+      { title: '商机公海', name: 'sea-opportunity', path: '/sea/opportunity', perm: 'sea:view', component: 'sea/index' },
+      { title: '线索公海', name: 'sea-lead', path: '/sea/lead', perm: 'sea:view', component: 'sea/index' },
+    ],
   },
   {
     title: '预警与审批',
@@ -88,7 +92,7 @@ export const MENU: MenuGroup[] = [
   },
   {
     title: '系统管理',
-    icon: 'Setting',
+    icon: 'Tools',
     children: [
       { title: '用户管理', name: 'sys-users', path: '/system/users', perm: 'user:view', component: 'system/users' },
       { title: '角色权限', name: 'sys-roles', path: '/system/roles', perm: 'role:view', component: 'system/roles' },

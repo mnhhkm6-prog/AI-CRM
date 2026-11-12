@@ -452,7 +452,7 @@
       <el-form label-width="100px">
         <el-form-item label="失败原因" required>
           <el-select v-model="lossForm.loss_reason" placeholder="请选择" style="width: 100%">
-            <el-option v-for="o in LOSS_REASONS" :key="o.value" :label="o.label" :value="o.value" />
+            <el-option v-for="o in lossReasons" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="详细说明" required>
@@ -604,7 +604,7 @@
         </el-form-item>
         <el-form-item label="产品类型" required>
           <el-select v-model="quotationForm.product_type" placeholder="请选择" style="width: 100%">
-            <el-option v-for="p in PRODUCT_TYPES" :key="p" :label="p" :value="p" />
+            <el-option v-for="p in productTypes" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
         <el-form-item label="报价金额" required>
@@ -706,7 +706,7 @@
         </el-form-item>
         <el-form-item label="产品类型">
           <el-select v-model="contractForm.product_type" clearable placeholder="请选择" style="width: 100%">
-            <el-option v-for="p in PRODUCT_TYPES" :key="p" :label="p" :value="p" />
+            <el-option v-for="p in productTypes" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
         <el-form-item label="合同附件" required>
@@ -742,7 +742,11 @@ import { useUserStore } from '@/stores/user'
 import OpportunityAdvanceDialog from '@/components/OpportunityAdvanceDialog.vue'
 import ActivityDrawer from '@/components/ActivityDrawer.vue'
 import ReminderDrawer from '@/components/ReminderDrawer.vue'
-import { LOSS_REASONS, PRODUCT_TYPES, loadOwnerOptions, type Option } from '@/config/options'
+import { LOSS_REASONS, PRODUCT_TYPES, DICT_CODES, dictOptions, dictValues, loadOwnerOptions, type Option } from '@/config/options'
+
+// 失败原因/产品类型跟随字典维护
+const lossReasons = computed(() => dictOptions(DICT_CODES.lossReason, LOSS_REASONS))
+const productTypes = computed(() => dictValues(DICT_CODES.productType, PRODUCT_TYPES))
 
 const DAY = 86400000
 /** 停滞预警阈值全局兜底，阶段可单独配置 */
@@ -1058,7 +1062,6 @@ const FILL_TAB_MAP: Record<string, string> = {
   'sys:proposal_formal': 'assets',
   'sys:quotation': 'assets',
   'sys:quotation_final': 'assets',
-  'sys:product_price': 'assets',
   'sys:competitor': 'competitors',
   'sys:contract': 'contracts',
   'sys:contract_amount': 'contracts',
@@ -1523,7 +1526,6 @@ function quickLabel(item: any) {
   if (key === 'sys:customer_contact') return userStore.hasPerm('customer:update') ? '去添加' : ''
   if (key === 'sys:competitor') return userStore.hasPerm('competitor:create') ? '去创建' : ''
   if (key.startsWith('sys:contract')) return userStore.hasPerm('contract:create') ? '去创建' : ''
-  if (key === 'sys:product_price') return userStore.hasPerm('quotation:create') ? '去创建' : ''
   return canUpdate.value ? '去填写' : ''
 }
 
@@ -1560,10 +1562,6 @@ function runQuick(item: any) {
   }
   if (key.startsWith('sys:contract')) {
     router.push('/contracts')
-    return
-  }
-  if (key === 'sys:product_price') {
-    router.push('/product-prices')
     return
   }
   goEdit()

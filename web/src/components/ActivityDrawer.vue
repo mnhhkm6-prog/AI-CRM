@@ -3,7 +3,7 @@
     <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
       <el-form-item label="行为类型" prop="activity_type">
         <el-select v-model="form.activity_type" placeholder="请选择" style="width: 100%">
-          <el-option v-for="o in ACTIVITY_TYPES" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in activityTypes" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="发生时间" prop="activity_time">
@@ -59,7 +59,10 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import * as api from '@/api'
-import { ACTIVITY_TYPES } from '@/config/options'
+import { ACTIVITY_TYPES, DICT_CODES, dictOptions } from '@/config/options'
+
+// 行为类型跟随字典维护
+const activityTypes = computed(() => dictOptions(DICT_CODES.activityType, ACTIVITY_TYPES))
 
 /**
  * 行为记录抽屉（P16 / PRD 5.4）

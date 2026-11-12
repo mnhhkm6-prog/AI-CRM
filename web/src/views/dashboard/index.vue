@@ -49,9 +49,9 @@
         <div class="section-card">
           <div class="section-head">
             <h3 class="section-card__title">今日待办</h3>
-            <el-button link type="primary" @click="router.push('/notifications?tab=reminders')">查看全部</el-button>
+            <el-button link type="primary" @click="router.push('/reminders')">查看全部</el-button>
           </div>
-          <el-table :data="reminders" size="small" :loading="loading" style="width: 100%">
+          <el-table :data="reminders" size="small" :loading="loading" style="width: 100%" @row-click="openReminder">
             <el-table-column label="提醒时间" width="150">
               <template #default="{ row }">
                 <span>{{ row.remind_at }}</span>
@@ -63,7 +63,7 @@
             </el-table-column>
             <el-table-column label="关联对象" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">
-                <el-link v-if="row.entity_name" type="primary" underline="never" @click="router.push(row.link)">
+                <el-link v-if="row.entity_name" type="primary" underline="never" @click.stop="router.push(row.link)">
                   {{ row.entity_label }}：{{ row.entity_name }}
                 </el-link>
                 <span v-else-if="row.entity_type === 'none'" class="text-muted">个人提醒</span>
@@ -162,6 +162,11 @@ const quickLinks = computed(() =>
 /** 预警级别文案（1 黄 / 2 橙 / 3 红，界面设计文档 6.3） */
 function levelText(level: number) {
   return { 1: '一级', 2: '二级', 3: '三级' }[level] || '已报备'
+}
+
+/** 点击今日待办：跳提醒事项并直接打开详情 */
+function openReminder(row: any) {
+  router.push(`/reminders?open=${row.id}`)
 }
 
 async function load() {

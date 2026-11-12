@@ -32,7 +32,7 @@
           <el-option v-for="o in LEAD_STATUS" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select v-model="query.source_channel" placeholder="来源渠道" clearable style="width: 140px" @change="reload">
-          <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in sourceChannelOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-date-picker
           v-model="dateRange"
@@ -143,7 +143,12 @@
         </el-form-item>
         <el-form-item label="来源渠道" required>
           <el-select v-model="customerForm.source_channel" placeholder="请选择来源渠道" style="width: 100%">
-            <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+            <el-option v-for="o in sourceChannelOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="所属行业" required>
+          <el-select v-model="customerForm.industry" placeholder="请选择所属行业" style="width: 100%">
+            <el-option v-for="o in industryOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="客户负责人">
@@ -213,10 +218,22 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import ViewBar, { type ViewApplyState, type ViewColumnDef, type ViewFilterDef } from '@/components/ViewBar.vue'
-import { LEAD_STATUS, SOURCE_CHANNELS, loadOwnerOptions, type Option } from '@/config/options'
+import {
+  LEAD_STATUS,
+  SOURCE_CHANNELS,
+  CUSTOMER_INDUSTRIES,
+  DICT_CODES,
+  dictOptions,
+  loadOwnerOptions,
+  type Option,
+} from '@/config/options'
 
 const router = useRouter()
 const userStore = useUserStore()
+
+// 来源渠道/行业跟随字典维护
+const sourceChannelOptions = computed(() => dictOptions(DICT_CODES.leadSourceChannel, SOURCE_CHANNELS))
+const industryOptions = computed(() => dictOptions(DICT_CODES.customerIndustry, CUSTOMER_INDUSTRIES))
 
 /** 可配置列（P42 视图配置）；align / tooltip 仅用于还原原有表格渲染 */
 interface ListColumnDef extends ViewColumnDef {
@@ -260,7 +277,7 @@ const query = reactive({
 /** 视图默认筛选可配置项（仅后端支持的查询参数） */
 const filterDefs = computed<ViewFilterDef[]>(() => [
   { key: 'status', label: '线索状态', type: 'select', options: LEAD_STATUS },
-  { key: 'source_channel', label: '来源渠道', type: 'select', options: SOURCE_CHANNELS },
+  { key: 'source_channel', label: '来源渠道', type: 'select', options: sourceChannelOptions.value },
   { key: 'owner_id', label: '负责人', type: 'select', options: owners.value },
 ])
 
@@ -302,8 +319,8 @@ const current = ref<any>(null)
 const assignDialog = ref(false)
 const assignOwnerId = ref('')
 const customerDialog = ref(false)
-const customerForm = reactive<{ customer_name: string; source_channel: string; owner_id: string }>({
-  customer_name: '', source_channel: '', owner_id: '',
+const customerForm = reactive<{ customer_name: string; source_channel: string; industry: string; owner_id: string }>({
+  customer_name: '', source_channel: '', industry: '', owner_id: '',
 })
 const convertDialog = ref(false)
 const convertForm = reactive<{ customer_id: string; opportunity_name: string; amount: number }>({
@@ -429,6 +446,7 @@ async function searchCustomers(keyword: string) {
 function openCustomerConvert(row: any) {
   customerForm.customer_name = row.customer_name || ''
   customerForm.source_channel = row.source_channel || ''
+  customerForm.industry = ''
   customerForm.owner_id = row.owner_id || ''
   customerDialog.value = true
 }
@@ -442,11 +460,16 @@ async function confirmConvertCustomer() {
     ElMessage.warning('请选择来源渠道')
     return
   }
+  if (!customerForm.industry) {
+    ElMessage.warning('请选择所属行业')
+    return
+  }
   submitting.value = true
   try {
     const res = await api.convertLeadToCustomer(current.value.id, {
       customer_name: customerForm.customer_name.trim(),
       source_channel: customerForm.source_channel,
+      industry: customerForm.industry,
       owner_id: customerForm.owner_id || undefined,
     })
     ElMessage.success(`已转为客户「${res.customer?.name || customerForm.customer_name}」`)

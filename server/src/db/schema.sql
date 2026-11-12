@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS system_configs (
   value_type TEXT DEFAULT 'string',       -- string / number / boolean / json
   description TEXT,
   updated_by TEXT,
+  version INTEGER DEFAULT 1,              -- 乐观锁：每次写入 +1
   created_at TEXT,
   updated_at TEXT
 );
@@ -407,20 +408,6 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS product_prices (
-  id TEXT PRIMARY KEY,
-  product_id TEXT,
-  product_type TEXT NOT NULL,
-  price REAL NOT NULL,
-  currency TEXT DEFAULT 'CNY',
-  effective_date TEXT,
-  remark TEXT,
-  created_by TEXT,
-  is_deleted INTEGER DEFAULT 0,
-  created_at TEXT,
-  updated_at TEXT
-);
-
 CREATE TABLE IF NOT EXISTS quotations (
   id TEXT PRIMARY KEY,
   opportunity_id TEXT NOT NULL,
@@ -570,14 +557,16 @@ CREATE TABLE IF NOT EXISTS sea_pool_records (
   entity_name TEXT,
   customer_id TEXT,
   reason TEXT,
-  source TEXT DEFAULT 'manual',           -- manual / auto_stale / auto_recycle
+  source TEXT DEFAULT 'manual',           -- manual / auto_stale / auto_recycle / auto_inactive
   previous_owner TEXT,                    -- 入公海前的负责人
+  parent_record_id TEXT,                  -- 客户打包转公海时，子商机记录指向客户记录
   entered_at TEXT,
   claimed_by TEXT,
   claimed_at TEXT,
-  protect_until TEXT,
+  claim_channel TEXT,                     -- self（自主领取）/ assign（主管分配）/ 空（随客户打包流转）
+  protect_until TEXT,                     -- 保护期截止：入海时写入，期间仅主管可分配
   is_claimed INTEGER DEFAULT 0,
-  status TEXT DEFAULT 'in_sea',           -- in_sea / claimed
+  status TEXT DEFAULT 'in_sea',           -- in_sea / claimed / assigned
   created_by TEXT,
   created_at TEXT,
   updated_at TEXT

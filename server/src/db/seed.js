@@ -123,6 +123,7 @@ const SYSTEM_CONFIGS = [
   { key: 'sea_daily_pickup_max', value: '5', group: 'sea', type: 'number', desc: '公海每日领取上限' },
   { key: 'sea_protection_days', value: '3', group: 'sea', type: 'number', desc: '公海保护期天数' },
   { key: 'lead_unconverted_recycle_days', value: '60', group: 'sea', type: 'number', desc: '线索未转化回收天数' },
+  { key: 'customer_inactive_recycle_days', value: '90', group: 'sea', type: 'number', desc: '客户无商机活动自动转公海天数' },
   { key: 'sea_pickup_mode', value: 'true', group: 'sea', type: 'boolean', desc: '是否开启公海自主领取模式' },
   { key: 'company_name', value: '示例科技有限公司', group: 'system', type: 'string', desc: '企业名称' },
   { key: 'login_mode', value: 'password', group: 'system', type: 'string', desc: '登录方式：password / ad_ldap' },
@@ -151,14 +152,13 @@ const STAGE_DEFS = [
   },
   {
     code: 'S2', name: '需求匹配与方案制定', sort: 30,
-    entry: '客户表达明确项目意向，有初步预算', deliverables: '初步方案、产品价格记录、竞争对手档案', roles: ['sales', 'presales', 'ecosystem', 'procurement', 'management'],
+    entry: '客户表达明确项目意向，有初步预算', deliverables: '初步方案、竞争对手档案', roles: ['sales', 'presales', 'ecosystem', 'procurement', 'management'],
     rules: [
       { name: '售前跟单行为记录', key: 'sys:activity', type: 'relation', required: 1, tip: '至少 1 条行为记录' },
       { name: '需求调研完成', key: 'demand_survey_done', type: 'boolean', required: 1 },
       { name: '真实需求清单', key: 'real_demand_list', type: 'textarea', required: 1 },
       { name: '初步方案', key: 'sys:proposal_preliminary', type: 'attachment', required: 1, tip: '需上传初步方案附件' },
       { name: '竞争对手', key: 'competitor_name', type: 'text', required: 1 },
-      { name: '初步产品价格记录', key: 'sys:product_price', type: 'relation', required: 1, tip: '至少 1 条产品价格记录' },
     ],
   },
   {
@@ -209,6 +209,7 @@ const DICT_DEFS = [
   { code: 'lead_source_channel', name: '线索来源渠道', items: ['电话', '展会', '线上推广', '转介绍', '其他'], module: '4.1 线索录入' },
   { code: 'opportunity_loss_reason', name: '商机失败原因', items: ['价格过高', '方案不匹配', '客户预算不足', '竞争对手胜出', '客户项目暂停', '其他'], module: '4.5 商机失效' },
   { code: 'customer_industry', name: '客户行业', items: ['互联网', '制造业', '金融', '政府', '教育', '医疗', '其他'], module: '客户管理' },
+  { code: 'customer_source_channel', name: '客户来源渠道', items: ['电话', '展会', '线上推广', '转介绍', '其他'], module: '客户管理' },
   { code: 'customer_scale', name: '客户规模', items: ['微型', '小型', '中型', '大型', '集团'], module: '客户管理' },
   {
     code: 'product_type',

@@ -24,7 +24,7 @@
           <el-col :span="12">
             <el-form-item label="来源渠道" prop="source_channel">
               <el-select v-model="form.source_channel" placeholder="请选择" style="width: 100%">
-                <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+                <el-option v-for="o in sourceChannelOptions" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -98,7 +98,10 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import CustomFieldForm from '@/components/CustomFieldForm.vue'
-import { LEAD_STATUS, SOURCE_CHANNELS, loadOwnerOptions, type Option } from '@/config/options'
+import { LEAD_STATUS, SOURCE_CHANNELS, DICT_CODES, dictOptions, loadOwnerOptions, type Option } from '@/config/options'
+
+// 来源渠道跟随字典维护
+const sourceChannelOptions = computed(() => dictOptions(DICT_CODES.leadSourceChannel, SOURCE_CHANNELS))
 
 const route = useRoute()
 const router = useRouter()

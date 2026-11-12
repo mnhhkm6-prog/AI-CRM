@@ -18,7 +18,7 @@
           <el-option label="已驳回" value="rejected" />
         </el-select>
         <el-select v-model="query.loss_reason" placeholder="失效原因" clearable style="width: 160px" @change="reload">
-          <el-option v-for="o in LOSS_REASONS" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in lossReasons" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-date-picker
           v-model="dateRange"
@@ -165,7 +165,10 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
-import { LOSS_REASONS } from '@/config/options'
+import { LOSS_REASONS, DICT_CODES, dictOptions } from '@/config/options'
+
+// 失败原因跟随字典维护
+const lossReasons = computed(() => dictOptions(DICT_CODES.lossReason, LOSS_REASONS))
 
 const router = useRouter()
 const userStore = useUserStore()

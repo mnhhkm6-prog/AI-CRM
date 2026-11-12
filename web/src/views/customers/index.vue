@@ -35,7 +35,7 @@
           <el-option v-for="o in CUSTOMER_LEVELS" :key="o.value" :label="`${o.label} 级`" :value="o.value" />
         </el-select>
         <el-select v-model="query.industry" placeholder="所属行业" clearable style="width: 140px" @change="reload">
-          <el-option v-for="o in CUSTOMER_INDUSTRIES" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in industryOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select v-model="query.is_favorite" placeholder="我的重点" clearable style="width: 120px" @change="reload">
           <el-option label="仅看我的重点" value="1" />
@@ -48,10 +48,10 @@
 
       <div v-if="more" class="filter-bar">
         <el-select v-model="query.scale" placeholder="客户规模" clearable style="width: 140px" @change="reload">
-          <el-option v-for="o in CUSTOMER_SCALES" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in scaleOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select v-model="query.source_channel" placeholder="来源渠道" clearable style="width: 140px" @change="reload">
-          <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in sourceChannelOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select v-model="query.owner_id" placeholder="负责人" clearable filterable style="width: 180px" @change="reload">
           <el-option v-for="o in owners" :key="o.value" :label="o.label" :value="o.value" />
@@ -158,6 +158,8 @@ import {
   CUSTOMER_SCALES,
   CUSTOMER_STATUS,
   SOURCE_CHANNELS,
+  DICT_CODES,
+  dictOptions,
   loadOwnerOptions,
   type Option,
 } from '@/config/options'
@@ -210,12 +212,16 @@ const query = reactive({
 })
 
 /** 视图默认筛选可配置项 */
+const industryOptions = computed(() => dictOptions(DICT_CODES.customerIndustry, CUSTOMER_INDUSTRIES))
+const scaleOptions = computed(() => dictOptions(DICT_CODES.customerScale, CUSTOMER_SCALES))
+const sourceChannelOptions = computed(() => dictOptions(DICT_CODES.customerSourceChannel, SOURCE_CHANNELS))
+
 const filterDefs = computed<ViewFilterDef[]>(() => [
   { key: 'status', label: '客户状态', type: 'select', options: CUSTOMER_STATUS },
   { key: 'level', label: '客户等级', type: 'select', options: CUSTOMER_LEVELS },
-  { key: 'industry', label: '所属行业', type: 'select', options: CUSTOMER_INDUSTRIES },
-  { key: 'scale', label: '客户规模', type: 'select', options: CUSTOMER_SCALES },
-  { key: 'source_channel', label: '来源渠道', type: 'select', options: SOURCE_CHANNELS },
+  { key: 'industry', label: '所属行业', type: 'select', options: industryOptions.value },
+  { key: 'scale', label: '客户规模', type: 'select', options: scaleOptions.value },
+  { key: 'source_channel', label: '来源渠道', type: 'select', options: sourceChannelOptions.value },
   { key: 'owner_id', label: '负责人', type: 'select', options: owners.value },
 ])
 

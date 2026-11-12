@@ -80,7 +80,12 @@
         </el-form-item>
         <el-form-item label="来源渠道" required>
           <el-select v-model="customerForm.source_channel" placeholder="请选择来源渠道" style="width: 100%">
-            <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+            <el-option v-for="o in sourceChannelOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="所属行业" required>
+          <el-select v-model="customerForm.industry" placeholder="请选择所属行业" style="width: 100%">
+            <el-option v-for="o in industryOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="客户负责人">
@@ -147,7 +152,18 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
-import { loadOwnerOptions, SOURCE_CHANNELS, type Option } from '@/config/options'
+import {
+  loadOwnerOptions,
+  SOURCE_CHANNELS,
+  CUSTOMER_INDUSTRIES,
+  DICT_CODES,
+  dictOptions,
+  type Option,
+} from '@/config/options'
+
+// 来源渠道/行业跟随字典维护
+const sourceChannelOptions = computed(() => dictOptions(DICT_CODES.leadSourceChannel, SOURCE_CHANNELS))
+const industryOptions = computed(() => dictOptions(DICT_CODES.customerIndustry, CUSTOMER_INDUSTRIES))
 
 const route = useRoute()
 const router = useRouter()
@@ -163,8 +179,8 @@ const owners = ref<Option[]>([])
 const assignDialog = ref(false)
 const assignOwnerId = ref('')
 const customerDialog = ref(false)
-const customerForm = reactive<{ customer_name: string; source_channel: string; owner_id: string }>({
-  customer_name: '', source_channel: '', owner_id: '',
+const customerForm = reactive<{ customer_name: string; source_channel: string; industry: string; owner_id: string }>({
+  customer_name: '', source_channel: '', industry: '', owner_id: '',
 })
 const convertDialog = ref(false)
 const convertForm = reactive<{ customer_id: string; opportunity_name: string; amount: number }>({
@@ -277,6 +293,7 @@ async function searchCustomers(keyword: string) {
 function openCustomerConvert() {
   customerForm.customer_name = lead.value?.customer_name || ''
   customerForm.source_channel = lead.value?.source_channel || ''
+  customerForm.industry = ''
   customerForm.owner_id = lead.value?.owner_id || ''
   customerDialog.value = true
 }
@@ -290,11 +307,16 @@ async function confirmConvertCustomer() {
     ElMessage.warning('请选择来源渠道')
     return
   }
+  if (!customerForm.industry) {
+    ElMessage.warning('请选择所属行业')
+    return
+  }
   submitting.value = true
   try {
     const res = await api.convertLeadToCustomer(id.value, {
       customer_name: customerForm.customer_name.trim(),
       source_channel: customerForm.source_channel,
+      industry: customerForm.industry,
       owner_id: customerForm.owner_id || undefined,
     })
     ElMessage.success('已转为客户')

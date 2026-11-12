@@ -2,7 +2,7 @@
 
 /**
  * M5 方案与报价管理（P17/P18/P19/P20）
- * 覆盖：附件上传/下载、方案、报价、产品价格记录、竞争对手（含主数据）、合同
+ * 覆盖：附件上传/下载、方案、报价、竞争对手（含主数据）、合同
  */
 const express = require('express');
 const fs = require('fs');
@@ -352,64 +352,6 @@ router.delete('/quotations/:id', requirePermission('quotation:delete'), (req, re
   db.prepare('UPDATE quotations SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), quotation.id);
   logOperation(req, { action: 'DELETE_QUOTATION', targetType: 'Quotation', targetId: quotation.id, detail: { opportunity_id: quotation.opportunity_id } });
   ok(res, { id: quotation.id, deleted: true });
-});
-
-// ---------------------------------------------------------------- 产品价格记录
-router.get('/products/prices', requirePermission('quotation:view'), (req, res) => {
-  const paging = getPaging(req);
-  const conditions = ['t.is_deleted = 0'];
-  const params = [];
-  if (req.query.product_type) {
-    conditions.push('t.product_type = ?');
-    params.push(req.query.product_type);
-  }
-  const where = conditions.join(' AND ');
-  const total = db.prepare(`SELECT COUNT(*) c FROM product_prices t WHERE ${where}`).get(...params).c;
-  const sort = buildSort(req, ['created_at', 'updated_at', 'price', 'effective_date'], 'created_at');
-  const list = db
-    .prepare(`SELECT t.* FROM product_prices t WHERE ${where}${sort.clause} LIMIT ? OFFSET ?`)
-    .all(...params, paging.limit, paging.offset);
-  ok(res, paged(list, total, paging));
-});
-
-router.post('/products/prices', requirePermission('quotation:create'), (req, res) => {
-  const body = bodyOf(req);
-  const productType = requireString(body, 'product_type', '产品类型');
-  const price = requireNumber(body, 'price', '价格');
-  const id = newId();
-  const t = now();
-  db.prepare(
-    `INSERT INTO product_prices (id, product_id, product_type, price, currency, effective_date, remark, created_by, is_deleted, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-  ).run(
-    id, optional(body, 'product_id'), productType, price, optional(body, 'currency', 'CNY'),
-    optional(body, 'effective_date'), optional(body, 'remark'), req.user.id, t, t
-  );
-  logOperation(req, { action: 'CREATE_PRODUCT_PRICE', targetType: 'ProductPrice', targetId: id, detail: { product_type: productType, price } });
-  created(res, db.prepare('SELECT * FROM product_prices WHERE id = ?').get(id));
-});
-
-router.put('/products/prices/:id', requirePermission('quotation:update'), (req, res) => {
-  const row = db.prepare('SELECT * FROM product_prices WHERE id = ? AND is_deleted = 0').get(req.params.id);
-  if (!row) throw notFound('产品价格记录不存在');
-  const body = bodyOf(req);
-  const after = {};
-  ['product_id', 'product_type', 'price', 'currency', 'effective_date', 'remark'].forEach((f) => {
-    if (body[f] !== undefined) after[f] = body[f];
-  });
-  if (!Object.keys(after).length) throw badRequest('没有可更新的字段');
-  const sets = Object.keys(after).map((f) => `${f} = @${f}`).join(', ');
-  db.prepare(`UPDATE product_prices SET ${sets}, updated_at = @t WHERE id = @id`).run({ ...after, id: row.id, t: now() });
-  logOperation(req, { action: 'UPDATE_PRODUCT_PRICE', targetType: 'ProductPrice', targetId: row.id, detail: after });
-  ok(res, db.prepare('SELECT * FROM product_prices WHERE id = ?').get(row.id));
-});
-
-router.delete('/products/prices/:id', requirePermission('quotation:delete'), (req, res) => {
-  const row = db.prepare('SELECT * FROM product_prices WHERE id = ? AND is_deleted = 0').get(req.params.id);
-  if (!row) throw notFound('产品价格记录不存在');
-  db.prepare('UPDATE product_prices SET is_deleted = 1, updated_at = ? WHERE id = ?').run(now(), row.id);
-  logOperation(req, { action: 'DELETE_PRODUCT_PRICE', targetType: 'ProductPrice', targetId: row.id });
-  ok(res, { id: row.id, deleted: true });
 });
 
 // ---------------------------------------------------------------- 竞争对手

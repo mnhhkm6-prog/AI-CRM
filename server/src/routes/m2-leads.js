@@ -208,6 +208,7 @@ router.post('/leads/:id/convert-to-customer', requirePermission('customer:create
   if (!name) throw badRequest('线索未填写客户名称，请填写客户名称后再转客户');
   const sourceChannel = optional(body, 'source_channel') || lead.source_channel;
   if (!String(sourceChannel || '').trim()) throw badRequest('来源渠道不能为空');
+  const industry = requireString(body, 'industry', '所属行业');
 
   const dup = db.prepare('SELECT id, name FROM customers WHERE is_deleted = 0 AND name = ?').get(name);
   if (dup && !body.ignore_duplicate) {
@@ -220,18 +221,18 @@ router.post('/leads/:id/convert-to-customer', requirePermission('customer:create
 
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO customers (id, name, type, status, owner_id, source_channel, is_in_sea, last_activity_at,
+      `INSERT INTO customers (id, name, type, status, owner_id, source_channel, industry, is_in_sea, last_activity_at,
         remark, created_by, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?, 0, ?, ?, ?, 0, ?, ?)`
+       VALUES (?, ?, ?, 'active', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)`
     ).run(
-      customerId, name, optional(body, 'type', '企业'), ownerId, sourceChannel, t,
+      customerId, name, optional(body, 'type', '企业'), ownerId, sourceChannel, industry, t,
       optional(body, 'remark') || lead.remark || null, req.user.id, t, t
     );
 
     db.prepare(
       `INSERT INTO customer_history (id, customer_id, action, after_snapshot, changed_by, created_at)
        VALUES (?, ?, 'create', ?, ?, ?)`
-    ).run(newId(), customerId, JSON.stringify({ name, source_channel: sourceChannel, from_lead: lead.id }), req.user.id, t);
+    ).run(newId(), customerId, JSON.stringify({ name, source_channel: sourceChannel, industry, from_lead: lead.id }), req.user.id, t);
 
     if (lead.contact_name) {
       db.prepare(

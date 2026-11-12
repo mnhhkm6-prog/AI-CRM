@@ -24,11 +24,18 @@ function migrate() {
   ensureColumn('leads', 'wechat', 'wechat TEXT');
   ensureColumn('leads', 'customer_name', 'customer_name TEXT');
   ensureColumn('sea_pool_records', 'previous_owner', 'previous_owner TEXT');
+  ensureColumn('sea_pool_records', 'parent_record_id', 'parent_record_id TEXT');
+  ensureColumn('sea_pool_records', 'claim_channel', 'claim_channel TEXT');
+  ensureColumn('system_configs', 'version', 'version INTEGER DEFAULT 1');
   ensureColumn('quotations', 'approval_status', "approval_status TEXT DEFAULT 'none'");
   ensureColumn('quotations', 'approval_instance_id', 'approval_instance_id TEXT');
   ensureColumn('contracts', 'approval_status', "approval_status TEXT DEFAULT 'none'");
   ensureColumn('contracts', 'approval_instance_id', 'approval_instance_id TEXT');
   ensureColumn('custom_field_definitions', 'stage_config_id', 'stage_config_id TEXT');
+
+  // 产品价格模块下线：清理存量阶段规则中的引用与历史数据表
+  db.exec("DELETE FROM stage_action_rules WHERE field_key = 'sys:product_price'");
+  db.exec('DROP TABLE IF EXISTS product_prices');
 
   // 存量商机自定义字段按固定动作规则回填所属阶段（仅回填一次，不覆盖人工调整）
   db.exec(`

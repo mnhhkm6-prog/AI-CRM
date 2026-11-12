@@ -7,9 +7,19 @@
           <span class="text-muted">参数变更立即生效并记入配置日志（M10-R3、决策 A–D）</span>
         </div>
         <div class="page-head__right">
-          <el-button @click="loadAll">刷新</el-button>
+          <el-button @click="loadAll()">刷新</el-button>
         </div>
       </div>
+
+      <el-alert
+        v-if="remoteChanged"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb-12"
+        title="系统参数已被他人更新"
+        description="当前页面存在未保存的修改（或保存时检测到参数已被他人修改），为避免覆盖未自动刷新；请核对后点击右上角「刷新」加载最新值。"
+      />
 
       <el-tabs v-model="tab">
         <!-- 预警规则 -->
@@ -91,6 +101,17 @@
                 />
                 <span class="unit">天</span>
               </el-form-item>
+              <el-form-item label="客户无商机活动回收天数">
+                <el-input-number
+                  v-model="seaForm.customer_recycle_days"
+                  :min="1"
+                  :max="365"
+                  :controls="false"
+                  style="width: 160px"
+                  :disabled="!canManage"
+                />
+                <span class="unit">天</span>
+              </el-form-item>
               <el-form-item>
                 <el-button v-if="canManage" type="primary" :loading="submitting" @click="saveSea">保存</el-button>
                 <span v-else class="text-muted">当前角色无参数修改权限</span>
@@ -142,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
@@ -163,18 +184,38 @@ const seaForm = reactive<any>({
   daily_pickup_max: 5,
   fallback_days_after_alert: 7,
   lead_recycle_days: 60,
+  customer_recycle_days: 90,
 })
 const systemConfigs = ref<any[]>([])
+const remoteChanged = ref(false)
+/** 乐观锁版本号：保存时回传，若他人已修改则拒绝覆盖 */
+const alertVersions = reactive<Record<string, number>>({})
+const seaVersions = reactive<Record<string, number>>({})
+/** 上次加载的参数快照，用于判断是否有未保存修改 */
+let snapshot = ''
 
 /** 登录方式有独立页面（P30），此处不重复提供编辑入口 */
 const SKIP_KEYS = ['login_mode']
 
 const canManage = computed(() => userStore.hasPerm('system_config:manage'))
 
+function currentState() {
+  return JSON.stringify({
+    alert: { ...alertForm },
+    sea: { ...seaForm },
+    alertVersions: { ...alertVersions },
+    seaVersions: { ...seaVersions },
+    system: systemConfigs.value.map((c: any) => [c.config_key, c.value, c.version]),
+  })
+}
+
 async function loadAlert() {
   const list = await api.alertConfigs()
   list.forEach((c: any) => {
-    if (alertForm[c.config_key] !== undefined) alertForm[c.config_key] = Number(c.value)
+    if (alertForm[c.config_key] !== undefined) {
+      alertForm[c.config_key] = Number(c.value)
+      alertVersions[c.config_key] = Number(c.version || 1)
+    }
   })
 }
 
@@ -183,6 +224,9 @@ async function loadSea() {
   Object.keys(seaForm).forEach((k) => {
     if (rules[k] !== undefined) seaForm[k] = rules[k]
   })
+  Object.entries(rules._versions || {}).forEach(([k, v]) => {
+    seaVersions[k] = Number(v || 1)
+  })
 }
 
 async function loadSystem() {
@@ -190,14 +234,43 @@ async function loadSystem() {
   systemConfigs.value = list.filter((c: any) => !SKIP_KEYS.includes(c.config_key))
 }
 
-async function loadAll() {
-  loading.value = true
+async function loadAll(silent = false) {
+  if (!silent) loading.value = true
   try {
     await Promise.all([loadAlert(), loadSea(), loadSystem()])
+    snapshot = currentState()
+    remoteChanged.value = false
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
+
+/* 参数联动：同浏览器标签页即时通知，跨机器靠 60 秒轮询 */
+const CONFIG_CHANNEL_NAME = 'crm:configs'
+let configChannel: BroadcastChannel | null = null
+let configTimer: number | null = null
+
+/** 保存成功后调用：更新快照并通知其他标签页 */
+function afterSaved() {
+  snapshot = currentState()
+  remoteChanged.value = false
+  configChannel?.postMessage('refresh')
+}
+
+/** 收到外部变更：无未保存修改就静默刷新，否则提示用户 */
+function reloadIfClean() {
+  if (currentState() !== snapshot) {
+    remoteChanged.value = true
+    return
+  }
+  loadAll(true)
+}
+
+/** 保存失败（409＝版本冲突，说明他人已改）：显示顶部提示，引导手动刷新 */
+function onSaveConflict(e: any) {
+  if (e?.status === 409) remoteChanged.value = true
+}
+
 
 async function saveAlert() {
   const { stale_alert_level1_days: l1, stale_alert_level2_days: l2, stale_alert_level3_days: l3 } = alertForm
@@ -213,12 +286,15 @@ async function saveAlert() {
   submitting.value = true
   try {
     await api.batchUpdateSystemConfigs([
-      { config_key: 'stale_alert_level1_days', config_value: l1 },
-      { config_key: 'stale_alert_level2_days', config_value: l2 },
-      { config_key: 'stale_alert_level3_days', config_value: l3 },
+      { config_key: 'stale_alert_level1_days', config_value: l1, version: alertVersions.stale_alert_level1_days },
+      { config_key: 'stale_alert_level2_days', config_value: l2, version: alertVersions.stale_alert_level2_days },
+      { config_key: 'stale_alert_level3_days', config_value: l3, version: alertVersions.stale_alert_level3_days },
     ])
     ElMessage.success('预警规则已保存')
     await loadAlert()
+    afterSaved()
+  } catch (e) {
+    onSaveConflict(e)
   } finally {
     submitting.value = false
   }
@@ -227,9 +303,12 @@ async function saveAlert() {
 async function saveSea() {
   submitting.value = true
   try {
-    await api.updateSeaConfig({ ...seaForm })
+    await api.updateSeaConfig({ ...seaForm, _versions: { ...seaVersions } })
     ElMessage.success('公海规则已保存')
     await loadSea()
+    afterSaved()
+  } catch (e) {
+    onSaveConflict(e)
   } finally {
     submitting.value = false
   }
@@ -238,15 +317,31 @@ async function saveSea() {
 async function saveOne(row: any) {
   submitting.value = true
   try {
-    await api.updateSystemConfig(row.config_key, row.value)
+    await api.updateSystemConfig(row.config_key, row.value, row.version)
     ElMessage.success('已保存')
     await loadSystem()
+    afterSaved()
+  } catch (e) {
+    onSaveConflict(e)
   } finally {
     submitting.value = false
   }
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadAll()
+  if (typeof BroadcastChannel !== 'undefined') {
+    configChannel = new BroadcastChannel(CONFIG_CHANNEL_NAME)
+    configChannel.onmessage = () => reloadIfClean()
+  }
+  configTimer = window.setInterval(reloadIfClean, 60000)
+})
+
+onUnmounted(() => {
+  configChannel?.close()
+  configChannel = null
+  if (configTimer) window.clearInterval(configTimer)
+})
 </script>
 
 <style scoped>

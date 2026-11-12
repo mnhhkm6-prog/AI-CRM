@@ -62,11 +62,6 @@ function requireReminder(user, id) {
   return row;
 }
 
-function entityNameOf(type, id) {
-  const row = db.prepare(`SELECT name FROM ${ENTITY_TABLE[type]} WHERE id = ? AND is_deleted = 0`).get(id);
-  return row ? row.name : null;
-}
-
 /** 新建提醒（仅本人）；entity_type = none 表示不关联客户/商机的个人提醒 */
 function create(user, body) {
   const entityType = String(body.entity_type || 'none');
@@ -156,6 +151,13 @@ function markDone(user, id) {
   if (row.status === 'done' || row.status === 'canceled') throw badRequest('该提醒已结束');
   db.prepare("UPDATE reminders SET status = 'done', done_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), row.id);
   return getById(user, row.id);
+}
+
+/** 点击提醒详情视为“到位”：一次性已触发提醒置为完成，其余保持原状 */
+function ack(user, id) {
+  const row = requireReminder(user, id);
+  if (row.status !== 'sent' || row.repeat_rule !== 'none') return getById(user, row.id);
+  return markDone(user, row.id);
 }
 
 function cancel(user, id) {
@@ -374,17 +376,13 @@ function scan() {
       }
     }
 
-    const repeatText = r.repeat_rule === 'none' ? '' : `（重复：${{ daily: '每天', weekly: '每周', monthly: '每月' }[r.repeat_rule]}）`;
-    const name = isPersonal ? '' : entityNameOf(r.entity_type, r.entity_id) || ENTITY_LABEL[r.entity_type];
     notification.push(r.user_id, {
       category: 'todo',
       title: `提醒：${r.title}`,
-      content: isPersonal
-        ? `个人提醒${r.content ? ` · ${r.content}` : ''}${repeatText}`
-        : `${ENTITY_LABEL[r.entity_type]}：${name}${r.content ? ` · ${r.content}` : ''}${repeatText}`,
+      content: null,
       refType: 'reminder',
       refId: r.id,
-      link: isPersonal ? '/notifications?tab=reminders' : r.entity_type === 'opportunity' ? `/opportunities/${r.entity_id}` : `/customers/${r.entity_id}`,
+      link: `/reminders?open=${r.id}`,
       dedupKey: `todo:${r.id}:${r.remind_at}`,
       createdAt: now(),
     });
@@ -411,6 +409,6 @@ function scan() {
 }
 
 module.exports = {
-  create, update, remove, markDone, cancel, skip, list, todayList,
+  create, update, remove, markDone, cancel, skip, ack, getById, list, todayList,
   scan, syncFromActivity, localDateTime,
 };

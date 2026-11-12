@@ -259,34 +259,45 @@ router.delete('/departments/:id', requirePermission('user:manage'), (req, res) =
 });
 
 // ---------------------------------------------------------------- 系统配置
+/** 公海规则字段与配置键的映射（GET / PUT 共用） */
+const SEA_KEY_MAP = {
+  protection_days: 'sea_protection_days',
+  is_pickup_mode: 'sea_pickup_mode',
+  personal_max: 'sea_personal_max',
+  daily_pickup_max: 'sea_daily_pickup_max',
+  lead_recycle_days: 'lead_unconverted_recycle_days',
+  customer_recycle_days: 'customer_inactive_recycle_days',
+  fallback_days_after_alert: 'sea_fallback_days_after_alert',
+};
+
+function versionsOf(keys) {
+  const versions = {};
+  keys.forEach((key) => {
+    const row = configService.getRow(key);
+    if (row) versions[key] = Number(row.version || 1);
+  });
+  return versions;
+}
+
 router.get('/system/configs', requirePermission('system_config:view'), (req, res) => {
   ok(res, req.query.config_group ? configService.group(req.query.config_group) : configService.all());
 });
 
 // ⚠️ 静态子路径 /system/configs/sea 必须写在 /system/configs/:key 之前
 router.get('/system/configs/sea', requirePermission('system_config:view'), (req, res) => {
-  ok(res, configService.seaRules());
+  ok(res, { ...configService.seaRules(), _versions: versionsOf(Object.values(SEA_KEY_MAP)) });
 });
 
 router.put('/system/configs/sea', requirePermission('system_config:manage'), (req, res) => {
   const body = bodyOf(req);
-  const map = {
-    protection_days: 'sea_protection_days',
-    is_pickup_mode: 'sea_pickup_mode',
-    personal_max: 'sea_personal_max',
-    daily_pickup_max: 'sea_daily_pickup_max',
-    lead_recycle_days: 'lead_unconverted_recycle_days',
-    fallback_days_after_alert: 'sea_fallback_days_after_alert',
-  };
-  const applied = [];
-  Object.entries(map).forEach(([field, key]) => {
-    if (body[field] === undefined) return;
-    configService.set(key, body[field], req.user.id, { createIfMissing: true });
-    applied.push(key);
-  });
-  if (!applied.length) throw badRequest('没有可更新的公海规则字段');
+  const versions = body._versions || {};
+  const fields = Object.entries(SEA_KEY_MAP).filter(([field]) => body[field] !== undefined);
+  if (!fields.length) throw badRequest('没有可更新的公海规则字段');
+  // 先整体校验乐观锁，避免部分写入
+  fields.forEach(([, key]) => configService.checkVersion(key, versions[key]));
+  fields.forEach(([field, key]) => configService.set(key, body[field], req.user.id, { createIfMissing: true }));
   logOperation(req, { action: 'UPDATE_SEA_RULES', targetType: 'SystemConfig', targetId: 'sea', detail: body, logType: 'config' });
-  ok(res, configService.seaRules());
+  ok(res, { ...configService.seaRules(), _versions: versionsOf(Object.values(SEA_KEY_MAP)) });
 });
 
 router.get('/system/login-config', requirePermission('system_config:view'), (req, res) => {
@@ -305,13 +316,13 @@ router.put('/system/login-config', requirePermission('system_config:manage'), (r
 
 router.put('/system/configs', requirePermission('system_config:manage'), (req, res) => {
   const body = bodyOf(req);
-  const items = Array.isArray(body.items) ? body.items : [];
+  const items = (Array.isArray(body.items) ? body.items : []).filter((it) => it && it.config_key);
   if (!items.length) throw badRequest('items 为必填数组');
-  const applied = [];
-  items.forEach((it) => {
-    if (!it || !it.config_key) return;
-    applied.push(configService.set(it.config_key, it.config_value, req.user.id, { createIfMissing: false }));
-  });
+  // 先整体校验乐观锁，再在一个事务里批量写入
+  items.forEach((it) => configService.checkVersion(it.config_key, it.version));
+  const applied = db.transaction(() =>
+    items.map((it) => configService.set(it.config_key, it.config_value, req.user.id, { createIfMissing: false }))
+  )();
   logOperation(req, {
     action: 'BATCH_UPDATE_SYSTEM_CONFIG',
     targetType: 'SystemConfig',
@@ -325,7 +336,10 @@ router.put('/system/configs', requirePermission('system_config:manage'), (req, r
 router.put('/system/configs/:key', requirePermission('system_config:manage'), (req, res) => {
   const body = bodyOf(req);
   if (body.config_value === undefined) throw badRequest('config_value 为必填项');
-  const row = configService.set(req.params.key, body.config_value, req.user.id, { createIfMissing: false });
+  const row = configService.set(req.params.key, body.config_value, req.user.id, {
+    createIfMissing: false,
+    expectedVersion: body.version,
+  });
   logOperation(req, {
     action: 'UPDATE_SYSTEM_CONFIG',
     targetType: 'SystemConfig',

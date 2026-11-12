@@ -24,16 +24,16 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="所属行业">
+            <el-form-item label="所属行业" prop="industry">
               <el-select v-model="form.industry" clearable placeholder="请选择" style="width: 100%">
-                <el-option v-for="o in CUSTOMER_INDUSTRIES" :key="o.value" :label="o.label" :value="o.value" />
+                <el-option v-for="o in industryOptions" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户规模">
               <el-select v-model="form.scale" clearable placeholder="请选择" style="width: 100%">
-                <el-option v-for="o in CUSTOMER_SCALES" :key="o.value" :label="o.label" :value="o.value" />
+                <el-option v-for="o in scaleOptions" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -61,7 +61,7 @@
           <el-col :span="12">
             <el-form-item label="来源渠道" prop="source_channel">
               <el-select v-model="form.source_channel" placeholder="请选择" style="width: 100%">
-                <el-option v-for="o in SOURCE_CHANNELS" :key="o.value" :label="o.label" :value="o.value" />
+                <el-option v-for="o in sourceChannelOptions" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -123,6 +123,8 @@ import {
   CUSTOMER_SCALES,
   CUSTOMER_TYPES,
   SOURCE_CHANNELS,
+  DICT_CODES,
+  dictOptions,
   loadOwnerOptions,
   type Option,
 } from '@/config/options'
@@ -130,6 +132,11 @@ import {
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+
+// 下拉选项统一读取字典，管理端维护后自动联动
+const industryOptions = computed(() => dictOptions(DICT_CODES.customerIndustry, CUSTOMER_INDUSTRIES))
+const scaleOptions = computed(() => dictOptions(DICT_CODES.customerScale, CUSTOMER_SCALES))
+const sourceChannelOptions = computed(() => dictOptions(DICT_CODES.customerSourceChannel, SOURCE_CHANNELS))
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -159,6 +166,7 @@ const form = reactive({
 const rules: FormRules = {
   name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
   source_channel: [{ required: true, message: '请选择来源渠道', trigger: 'change' }],
+  industry: [{ required: true, message: '请选择所属行业', trigger: 'change' }],
 }
 
 function back() {

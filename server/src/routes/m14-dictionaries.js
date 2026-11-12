@@ -53,6 +53,37 @@ function referencesOfItem(itemName) {
   return refs;
 }
 
+/** 只读字典选项（登录即可）：供业务表单/筛选下拉使用，避免销售角色缺少 dictionary:view */
+const OPTION_DICT_CODES = [
+  'customer_industry',
+  'customer_scale',
+  'customer_source_channel',
+  'lead_source_channel',
+  'opportunity_loss_reason',
+  'activity_type',
+  'product_type',
+];
+router.get('/option-dicts', (req, res) => {
+  const requested = String(req.query.codes || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const codes = requested.length ? requested : OPTION_DICT_CODES;
+  const result = {};
+  codes.forEach((code) => {
+    const type = db.prepare('SELECT id FROM dictionary_types WHERE dict_code = ? AND is_deleted = 0 AND is_enabled = 1').get(code);
+    if (!type) {
+      result[code] = [];
+      return;
+    }
+    result[code] = db.prepare(
+      `SELECT item_name AS label, item_name AS value FROM dictionary_items
+       WHERE dict_type_id = ? AND is_deleted = 0 AND is_enabled = 1 ORDER BY sort_order, created_at`
+    ).all(type.id);
+  });
+  ok(res, result);
+});
+
 /** 字典类型列表（M14-R1）：附带字典项数量 */
 router.get('/dictionaries', requirePermission('dictionary:view'), (req, res) => {
   const conditions = ['is_deleted = 0'];

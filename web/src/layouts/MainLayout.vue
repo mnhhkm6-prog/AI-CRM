@@ -20,8 +20,8 @@
               <el-menu-item v-for="leaf in group.children" :key="leaf.path" :index="leaf.path">
                 {{ leaf.title }}
                 <el-badge
-                  v-if="!collapsed && leaf.name === 'notifications' && unread"
-                  :value="unread"
+                  v-if="!collapsed && badgeOf(leaf.name)"
+                  :value="badgeOf(leaf.name)"
                   class="layout__nav-badge"
                 />
               </el-menu-item>
@@ -31,8 +31,8 @@
               <template #title>
                 {{ group.children[0].title }}
                 <el-badge
-                  v-if="!collapsed && group.children[0].name === 'notifications' && unread"
-                  :value="unread"
+                  v-if="!collapsed && badgeOf(group.children[0].name)"
+                  :value="badgeOf(group.children[0].name)"
                   class="layout__nav-badge"
                 />
               </template>
@@ -154,13 +154,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowDown, Bell, Checked, Expand, Fold, Lock, Search, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import { MENU, type MenuGroup } from '@/config/menu'
+import { preloadDictOptions, startDictSync, stopDictSync } from '@/config/options'
 
 const route = useRoute()
 const router = useRouter()
@@ -233,12 +234,21 @@ function onSearchSelect(item: Suggestion) {
 const notifications = ref<any[]>([])
 const unread = ref(0)
 const approvalPending = ref(0)
+const reminderCount = ref(0)
+
+/** 子菜单角标：消息中心=未读消息，提醒事项=今日待办提醒 */
+function badgeOf(name: string) {
+  if (name === 'notifications') return unread.value
+  if (name === 'reminders') return reminderCount.value
+  return 0
+}
 
 async function refreshBadges() {
   try {
-    const [u, s] = await Promise.all([api.unreadCount(), api.approvalSummary()])
+    const [u, s, r] = await Promise.all([api.unreadCount(), api.approvalSummary(), api.remindersToday()])
     unread.value = u.unread || 0
     approvalPending.value = s.pending || 0
+    reminderCount.value = r.total || 0
   } catch (e) {
     /* 静默失败，不打断使用 */
   }
@@ -331,7 +341,51 @@ async function submitPassword() {
 /* ---------------- 生命周期 ---------------- */
 let timer: number | undefined
 
+/** 路由变化（含从提醒详情返回）立即刷新角标 + 把当前激活菜单滚进可视区 */
+watch(
+  () => route.fullPath,
+  () => {
+    refreshBadges()
+    scrollMenuIntoView()
+  },
+)
+
+/** 路由变化/首屏加载后，把当前激活菜单项所属的分组标题滚到侧边栏可视区 */
+function scrollMenuIntoView() {
+  // 等 el-menu 渲染完（sub-menu 展开/折叠可能改 DOM）
+  requestAnimationFrame(() => {
+    const nav = document.querySelector('.layout__nav')
+    if (!nav) return
+    const active = nav.querySelector('.el-menu-item.is-active') as HTMLElement | null
+    if (!active) return
+    // 先展开它所属的 sub-menu（Element Plus 默认路由匹配时会自动展开，这里兜底）
+    const parentSub = active.closest('.el-sub-menu') as HTMLElement | null
+    if (parentSub && !parentSub.classList.contains('is-opened')) {
+      const opener = parentSub.querySelector(':scope > .el-sub-menu__title') as HTMLElement | null
+      opener?.click()
+    }
+    // 定位分组标题（sub-menu 就滚标题，顶级 item 滚自己）
+    const target = (parentSub?.querySelector(':scope > .el-sub-menu__title') as HTMLElement) || active
+    const scroll = nav.querySelector('.el-scrollbar__wrap') as HTMLElement | null
+    if (!scroll) return
+    const gRect = target.getBoundingClientRect()
+    const sRect = scroll.getBoundingClientRect()
+    const pad = 8
+    if (gRect.top < sRect.top + pad) {
+      scroll.scrollTop -= sRect.top + pad - gRect.top
+    } else if (gRect.bottom > sRect.bottom - pad) {
+      scroll.scrollTop += gRect.bottom - sRect.bottom + pad
+    }
+  })
+}
+
+/** 子页面处理提醒/消息后主动刷新角标 */
+function onRefreshBadges() {
+  refreshBadges()
+}
+
 onMounted(async () => {
+  window.addEventListener('crm:refresh-badges', onRefreshBadges)
   try {
     const cfg = await api.getLoginConfig()
     if (cfg?.company_name) companyName.value = cfg.company_name
@@ -339,11 +393,17 @@ onMounted(async () => {
     /* 静默 */
   }
   refreshBadges()
+  scrollMenuIntoView()
+  // 业务下拉选项统一走字典，登录后加载一次
+  preloadDictOptions()
+  startDictSync()
   timer = window.setInterval(refreshBadges, 60000)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('crm:refresh-badges', onRefreshBadges)
   if (timer) window.clearInterval(timer)
+  stopDictSync()
 })
 </script>
 

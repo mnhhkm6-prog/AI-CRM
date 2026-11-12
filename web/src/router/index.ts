@@ -52,6 +52,17 @@ const routes: RouteRecordRaw[] = [
     redirect: MENU[0].children[0].path,
     children: [
       { path: '403', name: 'forbidden', component: () => import('@/views/common/Forbidden.vue'), meta: { title: '无访问权限' } },
+      // 兼容旧链接 /sea?type=xxx，重定向到对应二级菜单
+      {
+        path: '/sea',
+        redirect: (to) => {
+          const t = String(to.query.type || '')
+          const type = ['customer', 'opportunity', 'lead'].includes(t) ? t : 'customer'
+          const rest = { ...to.query }
+          delete rest.type
+          return { path: `/sea/${type}`, query: rest }
+        },
+      },
       ...menuRoutes,
       ...hiddenRoutes,
     ],

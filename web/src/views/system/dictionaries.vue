@@ -205,6 +205,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
+import { notifyDictsChanged } from '@/config/options'
 
 const userStore = useUserStore()
 
@@ -340,6 +341,7 @@ async function confirmDict() {
       if (!isOn(dictEditing.value.is_system)) body.dict_code = dictForm.dict_code.trim()
       await api.updateDictionary(dictEditing.value.id, body)
       ElMessage.success('已保存')
+      notifyDictsChanged()
     } else {
       await api.createDictionary({
         dict_code: dictForm.dict_code.trim(),
@@ -348,6 +350,7 @@ async function confirmDict() {
         description: dictForm.description.trim() || undefined,
       })
       ElMessage.success('字典类型已创建')
+      notifyDictsChanged()
     }
     dictDialog.value = false
     await loadDicts()
@@ -361,6 +364,7 @@ async function removeDict(d: any) {
   try {
     await api.deleteDictionary(d.id)
     ElMessage.success('已删除')
+    notifyDictsChanged()
     if (current.value?.id === d.id) current.value = null
     await loadDicts()
   } catch (e: any) {
@@ -414,6 +418,7 @@ async function confirmItem() {
         remark: itemForm.remark.trim() || null,
       })
       ElMessage.success('已保存')
+      notifyDictsChanged()
     } else {
       await api.createDictionaryItem(current.value.id, {
         item_code: itemForm.item_code.trim(),
@@ -423,6 +428,7 @@ async function confirmItem() {
         remark: itemForm.remark.trim() || undefined,
       })
       ElMessage.success('字典项已创建')
+      notifyDictsChanged()
     }
     itemDialog.value = false
     await refreshItems()
@@ -437,6 +443,7 @@ async function toggleItem(row: any) {
   await ElMessageBox.confirm(`确认${action}字典项「${row.item_name}」？`, `${action}确认`, { type: 'warning' })
   await api.updateDictionaryItem(row.id, { is_enabled: next })
   ElMessage.success(`已${action}`)
+  notifyDictsChanged()
   await refreshItems()
 }
 
@@ -445,6 +452,7 @@ async function removeItem(row: any) {
   try {
     await api.deleteDictionaryItem(row.id)
     ElMessage.success('已删除')
+    notifyDictsChanged()
     await refreshItems()
   } catch (e: any) {
     const refs = e?.response?.data?.data
@@ -461,6 +469,7 @@ async function removeItem(row: any) {
       }
       await api.deleteDictionaryItem(row.id, true)
       ElMessage.success('已删除')
+      notifyDictsChanged()
       await refreshItems()
     } else {
       ElMessage.error(e?.bizMessage || '删除失败')

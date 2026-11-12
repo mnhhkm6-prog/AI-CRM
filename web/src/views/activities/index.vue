@@ -21,7 +21,7 @@
 
       <div class="filter-bar">
         <el-select v-model="query.activity_type" placeholder="行为类型" clearable style="width: 140px" @change="reload">
-          <el-option v-for="o in ACTIVITY_TYPES" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in activityTypes" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-select
           v-model="query.customer_id"
@@ -126,7 +126,10 @@ import * as api from '@/api'
 import { useUserStore } from '@/stores/user'
 import ActivityDrawer from '@/components/ActivityDrawer.vue'
 import ViewBar, { type ViewApplyState, type ViewColumnDef, type ViewFilterDef } from '@/components/ViewBar.vue'
-import { ACTIVITY_TYPES, loadOwnerOptions, type Option } from '@/config/options'
+import { ACTIVITY_TYPES, DICT_CODES, dictOptions, loadOwnerOptions, type Option } from '@/config/options'
+
+// 行为类型跟随字典维护
+const activityTypes = computed(() => dictOptions(DICT_CODES.activityType, ACTIVITY_TYPES))
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -171,7 +174,7 @@ const query = reactive({
 
 /** 视图默认筛选可配置项（仅后端支持的查询参数） */
 const filterDefs = computed<ViewFilterDef[]>(() => [
-  { key: 'activity_type', label: '行为类型', type: 'select', options: ACTIVITY_TYPES },
+  { key: 'activity_type', label: '行为类型', type: 'select', options: activityTypes.value },
   { key: 'created_by', label: '记录人', type: 'select', options: owners.value },
 ])
 

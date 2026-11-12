@@ -384,7 +384,6 @@ function onFill(item: any) {
       'sys:proposal_formal': 'assets',
       'sys:quotation': 'assets',
       'sys:quotation_final': 'assets',
-      'sys:product_price': 'assets',
       'sys:competitor': 'competitors',
       'sys:contract': 'contracts',
       'sys:contract_amount': 'contracts',

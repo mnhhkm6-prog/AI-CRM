@@ -171,15 +171,12 @@ async function main() {
   });
   check('S1→S2 固定动作齐备后推进成功', advanceS1.status === 200 && advanceS1.body.data.opportunity.stage_name_snapshot === '需求匹配与方案制定', advanceS1.body);
 
-  // S2 所需材料：初步方案 / 产品价格 / 竞争对手字段
+  // S2 所需材料：初步方案 / 竞争对手字段
   const proposalPre = await api('POST', `/opportunities/${opportunityId}/proposals`, {
     user: 'sales01',
     body: { proposal_type: 'preliminary', file_name: '初步方案v1.pdf', file_url: '/uploads/demo.pdf' },
   });
   check('POST /opportunities/{id}/proposals 上传初步方案', proposalPre.status === 201, proposalPre.body);
-
-  const price = await api('POST', '/products/prices', { user: 'purchase01', body: { product_type: '云计算', price: 300000, remark: '冒烟测试价格' } });
-  check('POST /products/prices 录入产品价格', price.status === 201, price.body);
 
   const advanceS2 = await api('POST', `/opportunities/${opportunityId}/advance`, {
     user: 'sales01',

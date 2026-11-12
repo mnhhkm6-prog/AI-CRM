@@ -62,12 +62,14 @@ export const readAllNotifications = () => client.post<any, { updated: number }>(
 
 /* 提醒事项 */
 export const listReminders = (params?: PageQuery) => client.get<any, Paged<any>>('/reminders', { params })
+export const getReminder = (id: string) => client.get<any, any>(`/reminders/${id}`)
 export const remindersToday = () =>
   client.get<any, { list: any[]; total: number; overdue: number }>('/reminders/today')
 export const createReminder = (body: any) => client.post<any, any>('/reminders', body)
 export const updateReminder = (id: string, body: any) => client.put<any, any>(`/reminders/${id}`, body)
 export const deleteReminder = (id: string) => client.delete(`/reminders/${id}`)
 export const doneReminder = (id: string) => client.post<any, any>(`/reminders/${id}/done`)
+export const ackReminder = (id: string) => client.post<any, any>(`/reminders/${id}/ack`)
 export const cancelReminder = (id: string) => client.post<any, any>(`/reminders/${id}/cancel`)
 export const skipReminder = (id: string) => client.post<any, any>(`/reminders/${id}/skip`)
 
@@ -217,11 +219,6 @@ export const createQuotation = (opportunityId: string, body: any) => client.post
 export const updateQuotation = (id: string, body: any) => client.put(`/quotations/${id}`, body)
 export const deleteQuotation = (id: string) => client.delete(`/quotations/${id}`)
 
-export const listProductPrices = (params?: PageQuery) => client.get<any, Paged<any>>('/products/prices', { params })
-export const createProductPrice = (body: any) => client.post<any, { id: string }>('/products/prices', body)
-export const updateProductPrice = (id: string, body: any) => client.put(`/products/prices/${id}`, body)
-export const deleteProductPrice = (id: string) => client.delete(`/products/prices/${id}`)
-
 export const listCompetitors = (opportunityId: string) => client.get<any, any[]>(`/opportunities/${opportunityId}/competitors`)
 export const listAllCompetitors = (params?: PageQuery) => client.get<any, Paged<any>>('/competitors', { params })
 export const createCompetitor = (opportunityId: string, body: any) => client.post(`/opportunities/${opportunityId}/competitors`, body)
@@ -321,11 +318,11 @@ export const seaConfig = () => client.get<any, any>('/system/configs/sea')
 export const updateSeaConfig = (body: any) => client.put('/system/configs/sea', body)
 export const loginConfig = () => client.get<any, any>('/system/login-config')
 export const updateLoginConfig = (body: any) => client.put('/system/login-config', body)
-/** 修改单项配置（后端字段名为 config_value） */
-export const updateSystemConfig = (key: string, configValue: any, confirm = false) =>
-  client.put(`/system/configs/${key}`, { config_value: configValue, confirm })
+/** 修改单项配置（后端字段名为 config_value；version 用于乐观锁） */
+export const updateSystemConfig = (key: string, configValue: any, version?: number, confirm = false) =>
+  client.put(`/system/configs/${key}`, { config_value: configValue, version, confirm })
 /** 批量修改配置（含影响摘要二次确认） */
-export const batchUpdateSystemConfigs = (items: Array<{ config_key: string; config_value: any }>) =>
+export const batchUpdateSystemConfigs = (items: Array<{ config_key: string; config_value: any; version?: number }>) =>
   client.put('/system/configs', { items })
 
 export const listBackups = () => client.get<any, any[]>('/system/backups')
@@ -390,6 +387,11 @@ export const roleMembers = (id: string) => client.get<any, any[]>(`/roles/${id}/
  * M14 字典（P41）
  * ============================================================ */
 export const listDictionaries = (params?: PageQuery) => client.get<any, any[]>('/dictionaries', { params })
+/** 只读字典选项（登录即可，供下拉联动使用） */
+export const optionDicts = (codes?: string[]) =>
+  client.get<any, Record<string, { label: string; value: string }[]>>('/option-dicts', {
+    params: codes?.length ? { codes: codes.join(',') } : {},
+  })
 export const getDictionary = (id: string) => client.get<any, any>(`/dictionaries/${id}`)
 export const createDictionary = (body: any) => client.post<any, { id: string }>('/dictionaries', body)
 export const updateDictionary = (id: string, body: any) => client.put(`/dictionaries/${id}`, body)
